@@ -210,10 +210,16 @@ function pickRelevantJobId(question, jobs) {
       if (/frontend|react|ui/.test(q) && /frontend|react|ui/.test(title)) {
         score += 4;
       }
-      if (/backend|node|api|server/.test(q) && /backend|node|api|server/.test(title)) {
+      if (
+        /backend|node|api|server/.test(q) &&
+        /backend|node|api|server/.test(title)
+      ) {
         score += 4;
       }
-      if (/ai|ml|nlp|research/.test(q) && /ai|ml|nlp|research/.test(`${title} ${dept}`)) {
+      if (
+        /ai|ml|nlp|research/.test(q) &&
+        /ai|ml|nlp|research/.test(`${title} ${dept}`)
+      ) {
         score += 4;
       }
 

@@ -72,10 +72,12 @@ export function normalizeJob(j) {
       ? j.employment_type.split("-").map(capitalize).join("-")
       : j.type || "Full-time",
     salary: salaryStr,
-    posted: j.created_at || j.posted_at
-      ? (j.created_at || j.posted_at).split("T")[0]
-      : j.posted || new Date().toISOString().split("T")[0],
-    applicants: j.applications_count || j.application_count || j.applicants || 0,
+    posted:
+      j.created_at || j.posted_at
+        ? (j.created_at || j.posted_at).split("T")[0]
+        : j.posted || new Date().toISOString().split("T")[0],
+    applicants:
+      j.applications_count || j.application_count || j.applicants || 0,
     status:
       j.is_active != null
         ? j.is_active
