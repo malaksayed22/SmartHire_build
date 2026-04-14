@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { JOBS } from "../data/mock";
 
 const QUICK_REPLIES = [
   "What jobs are open?",
@@ -11,8 +10,9 @@ const QUICK_REPLIES = [
 
 // ─── Rule-based bot responses ────────────────────────────────────────────────────
 
-function getBotReply(text) {
+function getBotReply(text, jobs = []) {
   const t = text.toLowerCase();
+  const activeJobs = jobs.filter((j) => j.status === "active");
 
   if (/hello|hi|hey|good (morning|afternoon|evening)|howdy/.test(t)) {
     return {
@@ -27,7 +27,14 @@ function getBotReply(text) {
       t,
     )
   ) {
-    const active = JOBS.filter((j) => j.status === "active");
+    const active = activeJobs;
+
+    if (active.length === 0) {
+      return {
+        text: "I can't find any live open jobs right now. Please refresh the Jobs page and try again in a moment.",
+        quick: ["How do I apply?", "How does AI scoring work?"],
+      };
+    }
 
     // Map input keywords → job title/department matchers
     const filters = [
@@ -109,9 +116,15 @@ function getBotReply(text) {
   }
 
   if (/salary|pay|compens|money|benefit|package/.test(t)) {
-    const salaries = JOBS.filter((j) => j.status === "active")
+    const salaries = activeJobs
       .map((j) => `• ${j.title}: ${j.salary}`)
       .join("\n");
+    if (!salaries) {
+      return {
+        text: "I can't load live salary ranges right now. Please open the Jobs page for current compensation details.",
+        quick: ["What jobs are open?", "How do I apply?"],
+      };
+    }
     return {
       text: `Salary ranges vary by role:\n\n${salaries}\n\nAll roles include competitive benefits. Check individual job listings for full details.`,
       quick: ["What jobs are open?", "How do I apply?"],
@@ -119,9 +132,15 @@ function getBotReply(text) {
   }
 
   if (/remote|location|where|cairo|egypt|hybrid|on.?site/.test(t)) {
-    const locs = JOBS.filter((j) => j.status === "active")
+    const locs = activeJobs
       .map((j) => `• ${j.title}: ${j.location}`)
       .join("\n");
+    if (!locs) {
+      return {
+        text: "I can't load live location data right now. Please open the Jobs page for current role locations.",
+        quick: ["What jobs are open?", "How do I apply?"],
+      };
+    }
     return {
       text: `Here's where each open role is based:\n\n${locs}\n\nWe offer a mix of remote, hybrid, and on-site arrangements depending on the role.`,
       quick: ["What jobs are open?", "How do I apply?"],
@@ -222,6 +241,7 @@ function TypingDots() {
 export default function Chatbot() {
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const [liveJobs, setLiveJobs] = useState([]);
   const [messages, setMessages] = useState([
     {
       from: "bot",
@@ -234,6 +254,18 @@ export default function Chatbot() {
   const [unread, setUnread] = useState(0);
   const bottomRef = useRef();
   const inputRef = useRef();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { getActiveJobs, normalizeJob } = await import("../services/api");
+        const jobs = await getActiveJobs();
+        setLiveJobs(jobs.map(normalizeJob));
+      } catch {
+        setLiveJobs([]);
+      }
+    })();
+  }, []);
 
   // Don't show on HR dashboard pages
   const isHR =
@@ -259,7 +291,7 @@ export default function Chatbot() {
     scrollToBottom();
     const delay = 600 + Math.random() * 500;
     setTimeout(() => {
-      const reply = getBotReply(text.trim());
+      const reply = getBotReply(text.trim(), liveJobs);
       setTyping(false);
       setMessages((prev) => [...prev, { from: "bot", ...reply }]);
       if (!open) setUnread((n) => n + 1);
