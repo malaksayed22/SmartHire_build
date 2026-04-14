@@ -1,13 +1,29 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 export default function PublicNav() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
+  const { candidateUser, hrUser, logoutCandidate, logoutHR } = useAuth();
 
-  if (typeof window !== "undefined") {
-    window.onscroll = () => setScrolled(window.scrollY > 20);
-  }
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    onScroll();
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const handleSignOut = async () => {
+    if (candidateUser) {
+      await logoutCandidate();
+    }
+    if (hrUser) {
+      await logoutHR();
+    }
+    navigate("/");
+  };
 
   return (
     <nav
@@ -93,31 +109,147 @@ export default function PublicNav() {
       </ul>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <Link
-          to="/candidate/login"
-          style={{
-            fontFamily: "'Syne', sans-serif",
-            fontWeight: 600,
-            fontSize: 15.5,
-            color: "var(--m1)",
-            letterSpacing: "-0.2px",
-            textDecoration: "none",
-            padding: "8px 16px",
-            borderRadius: 8,
-            display: "block",
-            transition: "color 0.2s, background 0.2s",
-          }}
-          onMouseEnter={(e) => {
-            e.target.style.color = "#7AACFF";
-            e.target.style.background = "rgba(91,142,248,0.08)";
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.color = "var(--m1)";
-            e.target.style.background = "transparent";
-          }}
-        >
-          Sign in →
-        </Link>
+        {candidateUser ? (
+          <>
+            <Link
+              to="/candidate/portal"
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 600,
+                fontSize: 15.5,
+                color: "var(--m1)",
+                letterSpacing: "-0.2px",
+                textDecoration: "none",
+                padding: "8px 16px",
+                borderRadius: 8,
+                display: "block",
+                transition: "color 0.2s, background 0.2s",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.color = "#7AACFF";
+                e.target.style.background = "rgba(91,142,248,0.08)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.color = "var(--m1)";
+                e.target.style.background = "transparent";
+              }}
+            >
+              Candidate Portal
+            </Link>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 600,
+                fontSize: 15.5,
+                color: "var(--m1)",
+                letterSpacing: "-0.2px",
+                background: "transparent",
+                border: "none",
+                textDecoration: "none",
+                padding: "8px 16px",
+                borderRadius: 8,
+                display: "block",
+                transition: "color 0.2s, background 0.2s",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.color = "#7AACFF";
+                e.target.style.background = "rgba(91,142,248,0.08)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.color = "var(--m1)";
+                e.target.style.background = "transparent";
+              }}
+            >
+              Sign out
+            </button>
+          </>
+        ) : hrUser ? (
+          <>
+            <Link
+              to="/hr/dashboard"
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 600,
+                fontSize: 15.5,
+                color: "var(--m1)",
+                letterSpacing: "-0.2px",
+                textDecoration: "none",
+                padding: "8px 16px",
+                borderRadius: 8,
+                display: "block",
+                transition: "color 0.2s, background 0.2s",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.color = "#7AACFF";
+                e.target.style.background = "rgba(91,142,248,0.08)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.color = "var(--m1)";
+                e.target.style.background = "transparent";
+              }}
+            >
+              HR Dashboard
+            </Link>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 600,
+                fontSize: 15.5,
+                color: "var(--m1)",
+                letterSpacing: "-0.2px",
+                background: "transparent",
+                border: "none",
+                textDecoration: "none",
+                padding: "8px 16px",
+                borderRadius: 8,
+                display: "block",
+                transition: "color 0.2s, background 0.2s",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.color = "#7AACFF";
+                e.target.style.background = "rgba(91,142,248,0.08)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.color = "var(--m1)";
+                e.target.style.background = "transparent";
+              }}
+            >
+              Sign out
+            </button>
+          </>
+        ) : (
+          <Link
+            to="/candidate/login"
+            style={{
+              fontFamily: "'Syne', sans-serif",
+              fontWeight: 600,
+              fontSize: 15.5,
+              color: "var(--m1)",
+              letterSpacing: "-0.2px",
+              textDecoration: "none",
+              padding: "8px 16px",
+              borderRadius: 8,
+              display: "block",
+              transition: "color 0.2s, background 0.2s",
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.color = "#7AACFF";
+              e.target.style.background = "rgba(91,142,248,0.08)";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.color = "var(--m1)";
+              e.target.style.background = "transparent";
+            }}
+          >
+            Sign in →
+          </Link>
+        )}
       </div>
     </nav>
   );
