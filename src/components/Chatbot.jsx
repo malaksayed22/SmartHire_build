@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const QUICK_REPLIES = [
   "What jobs are open?",
@@ -188,6 +189,62 @@ function getBotReply(text, jobs = []) {
   };
 }
 
+function pickRelevantJobId(question, jobs) {
+  if (!Array.isArray(jobs) || jobs.length === 0) return null;
+
+  const q = question.toLowerCase();
+  const scored = jobs
+    .filter((j) => Boolean(j?._id))
+    .map((j) => {
+      let score = 0;
+      const title = String(j.title || "").toLowerCase();
+      const dept = String(j.department || "").toLowerCase();
+      const type = String(j.type || "").toLowerCase();
+      const loc = String(j.location || "").toLowerCase();
+
+      if (title && q.includes(title)) score += 5;
+      if (dept && q.includes(dept)) score += 3;
+      if (type && q.includes(type)) score += 2;
+      if (loc && q.includes(loc)) score += 2;
+
+      if (/frontend|react|ui/.test(q) && /frontend|react|ui/.test(title)) {
+        score += 4;
+      }
+      if (/backend|node|api|server/.test(q) && /backend|node|api|server/.test(title)) {
+        score += 4;
+      }
+      if (/ai|ml|nlp|research/.test(q) && /ai|ml|nlp|research/.test(`${title} ${dept}`)) {
+        score += 4;
+      }
+
+      return { id: j._id, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.id || jobs[0]?._id || null;
+}
+
+function extractBackendAnswer(payload) {
+  const queue = [payload];
+  let depth = 0;
+
+  while (queue.length > 0 && depth < 20) {
+    const cur = queue.shift();
+    depth += 1;
+    if (!cur || typeof cur !== "object") continue;
+
+    if (typeof cur.answer === "string" && cur.answer.trim()) {
+      return cur.answer.trim();
+    }
+
+    for (const key of ["result", "data", "payload"]) {
+      if (cur[key] != null) queue.push(cur[key]);
+    }
+  }
+
+  return "";
+}
+
 // ─── Message bubble ────────────────────────────────────────────────────────
 
 function formatText(text) {
@@ -240,6 +297,7 @@ function TypingDots() {
 
 export default function Chatbot() {
   const location = useLocation();
+  const { candidateUser } = useAuth();
   const [open, setOpen] = useState(false);
   const [liveJobs, setLiveJobs] = useState([]);
   const [messages, setMessages] = useState([
@@ -290,8 +348,26 @@ export default function Chatbot() {
     setTyping(true);
     scrollToBottom();
     const delay = 600 + Math.random() * 500;
-    setTimeout(() => {
-      const reply = getBotReply(text.trim(), liveJobs);
+    setTimeout(async () => {
+      let backendReply = "";
+
+      try {
+        if (candidateUser) {
+          const jobId = pickRelevantJobId(text.trim(), liveJobs);
+          if (jobId) {
+            const { chatByJob } = await import("../services/api");
+            const payload = await chatByJob(jobId, text.trim());
+            backendReply = extractBackendAnswer(payload);
+          }
+        }
+      } catch {
+        backendReply = "";
+      }
+
+      const reply = backendReply
+        ? { text: backendReply, quick: QUICK_REPLIES }
+        : getBotReply(text.trim(), liveJobs);
+
       setTyping(false);
       setMessages((prev) => [...prev, { from: "bot", ...reply }]);
       if (!open) setUnread((n) => n + 1);
