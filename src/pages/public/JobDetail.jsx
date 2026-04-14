@@ -647,6 +647,31 @@ function JobAIChat({ job }) {
 
   const jobDesc = `${job.title}\n\nDepartment: ${job.department}\nLocation: ${job.location}\nSalary: ${job.salary}\n\n${job.description}\n\nRequirements:\n${job.requirements.join("\n")}\n\nNice to have:\n${(job.nice || []).join("\n")}`;
 
+  const extractChatAnswer = (payload) => {
+    const queue = [payload];
+    let depth = 0;
+
+    while (queue.length > 0 && depth < 30) {
+      const current = queue.shift();
+      depth += 1;
+      if (!current || typeof current !== "object") continue;
+
+      for (const key of ["answer", "text", "response", "content"]) {
+        if (typeof current[key] === "string" && current[key].trim()) {
+          return current[key].trim();
+        }
+      }
+
+      for (const key of ["result", "data", "payload"]) {
+        if (current[key] != null) {
+          queue.push(current[key]);
+        }
+      }
+    }
+
+    return "";
+  };
+
   const send = async (text) => {
     if (!text.trim() || loading) return;
     setMessages((prev) => [...prev, { from: "user", text: text.trim() }]);
@@ -666,8 +691,7 @@ function JobAIChat({ job }) {
       const { chatByJob } = await import("../../services/api");
       const data = await chatByJob(job._id, text.trim());
       const answer =
-        data.result?.answer ||
-        data.answer ||
+        extractChatAnswer(data) ||
         "I couldn't generate a response right now.";
       setMessages((prev) => [...prev, { from: "bot", text: answer }]);
     } catch {
