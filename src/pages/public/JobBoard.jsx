@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import PublicNav from "../../components/PublicNav";
 import { DeptTag } from "../../components/UI";
-import { JOBS } from "../../data/mock";
 import { useAuth } from "../../context/AuthContext";
 
 const TYPES = ["Full-time", "Part-time", "Remote", "Contract"];
@@ -13,7 +12,7 @@ export default function JobBoard() {
   const [search, setSearch] = useState("");
   const [dept, setDept] = useState("All");
   const [selectedTypes, setSelectedTypes] = useState([]);
-  const [jobs, setJobs] = useState(JOBS);
+  const [jobs, setJobs] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -21,8 +20,8 @@ export default function JobBoard() {
         const { getActiveJobs, normalizeJob } =
           await import("../../services/api");
         const data = await getActiveJobs();
-        // getActiveJobs already normalizes to array; guard against empty
-        if (data.length > 0) setJobs(data.map(normalizeJob));
+        // Always trust backend list (including empty), so users don't apply on mock-only listings.
+        setJobs(data.map(normalizeJob));
       } catch {}
     })();
   }, []);
@@ -95,7 +94,7 @@ export default function JobBoard() {
             </span>
           </h1>
           <p style={{ color: "var(--m1)", fontSize: 16, fontWeight: 300 }}>
-            {JOBS.length} open positions · AI-assisted matching · Instant
+            {jobs.length} open positions · AI-assisted matching · Instant
             application
           </p>
         </div>

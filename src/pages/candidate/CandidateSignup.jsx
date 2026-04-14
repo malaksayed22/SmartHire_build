@@ -3,6 +3,7 @@ import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 
 export default function CandidateSignup() {
+  const MIN_PASSWORD_LENGTH = 8;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -16,19 +17,60 @@ export default function CandidateSignup() {
   const redirectTo =
     new URLSearchParams(location.search).get("redirect") || "/candidate/portal";
 
+  const validateSignup = ({
+    nextName,
+    nextEmail,
+    nextPhone,
+    nextPassword,
+    nextConfirm,
+  }) => {
+    if (
+      !nextName ||
+      !nextEmail ||
+      !nextPhone ||
+      !nextPassword ||
+      !nextConfirm
+    ) {
+      return "Please fill in all fields.";
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(nextEmail)) {
+      return "Please enter a valid email address.";
+    }
+
+    if (nextPassword.length < MIN_PASSWORD_LENGTH) {
+      return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+    }
+
+    if (nextPassword !== nextConfirm) {
+      return "Passwords do not match.";
+    }
+
+    return "";
+  };
+
   const handleSignup = async () => {
-    if (!name || !email || !phone || !password || !confirm) {
-      setError("Please fill in all fields.");
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+    const cleanPhone = phone.trim();
+    const validationError = validateSignup({
+      nextName: cleanName,
+      nextEmail: cleanEmail,
+      nextPhone: cleanPhone,
+      nextPassword: password,
+      nextConfirm: confirm,
+    });
+
+    if (validationError) {
+      setError(validationError);
       return;
     }
-    if (password !== confirm) {
-      setError("Passwords do not match.");
-      return;
-    }
+
     setLoading(true);
     setError("");
     try {
-      await signupCandidate(name, email, phone, password);
+      await signupCandidate(cleanName, cleanEmail, cleanPhone, password);
       navigate(redirectTo);
     } catch (err) {
       setError(err.message || "Registration failed. Try a different email.");
@@ -174,16 +216,29 @@ export default function CandidateSignup() {
               <input
                 className="input"
                 type="password"
+                minLength={MIN_PASSWORD_LENGTH}
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSignup()}
               />
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--m2)",
+                  marginTop: 6,
+                }}
+              >
+                Use at least {MIN_PASSWORD_LENGTH} characters.
+              </div>
             </div>
             <div>
               <label className="label">Confirm Password</label>
               <input
                 className="input"
                 type="password"
+                minLength={MIN_PASSWORD_LENGTH}
+                autoComplete="new-password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSignup()}
