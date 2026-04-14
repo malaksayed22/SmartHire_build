@@ -39,16 +39,23 @@ export default function JobBoard() {
   const filtered = useMemo(
     () =>
       jobs.filter((j) => {
+        const searchTerm = search.toLowerCase().trim();
+        const title = String(j?.title ?? "").toLowerCase();
+        const department = String(j?.department ?? "").toLowerCase();
+        const departmentRaw = String(j?.department ?? "");
+        const type = String(j?.type ?? "");
+
         const matchSearch =
-          j.title.toLowerCase().includes(search.toLowerCase()) ||
-          j.department.toLowerCase().includes(search.toLowerCase());
-        const matchDept = dept === "All" || j.department === dept;
+          !searchTerm ||
+          title.includes(searchTerm) ||
+          department.includes(searchTerm);
+        const matchDept = dept === "All" || departmentRaw === dept;
         const matchType =
           selectedTypes.length === 0 ||
-          selectedTypes.some((t) => j.type.includes(t));
+          selectedTypes.some((t) => type.includes(t));
         return matchSearch && matchDept && matchType;
       }),
-    [search, dept, selectedTypes],
+    [jobs, search, dept, selectedTypes],
   );
 
   return (

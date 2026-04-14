@@ -42,9 +42,14 @@ async function extractError(res) {
 export function normalizeJob(j) {
   const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
+  const salaryMin = j.salary_min ?? j.salary?.min;
+  const salaryMax = j.salary_max ?? j.salary?.max;
+  const salaryCurrency = j.salary_currency || j.salary?.currency || "$";
+  const salaryPeriod = j.salary_period || j.salary?.period || "mo";
+
   const salaryStr =
-    j.salary_min != null && j.salary_max != null
-      ? `${j.salary_currency || "$"}${Number(j.salary_min).toLocaleString()} – ${j.salary_currency || "$"}${Number(j.salary_max).toLocaleString()}/${j.salary_period || "mo"}`
+    salaryMin != null && salaryMax != null
+      ? `${salaryCurrency}${Number(salaryMin).toLocaleString()} – ${salaryCurrency}${Number(salaryMax).toLocaleString()}/${salaryPeriod}`
       : j.salary || "Competitive";
 
   const toArray = (v) =>
@@ -60,17 +65,17 @@ export function normalizeJob(j) {
   return {
     id: j._id || j.id,
     _id: j._id || j.id,
-    title: j.title,
+    title: String(j.title || "Untitled role"),
     department: j.department || capitalize(j.work_mode) || "General",
     location: capitalize(j.work_mode) || "On-site",
     type: j.employment_type
       ? j.employment_type.split("-").map(capitalize).join("-")
       : j.type || "Full-time",
     salary: salaryStr,
-    posted: j.created_at
-      ? j.created_at.split("T")[0]
+    posted: j.created_at || j.posted_at
+      ? (j.created_at || j.posted_at).split("T")[0]
       : j.posted || new Date().toISOString().split("T")[0],
-    applicants: j.applications_count || j.applicants || 0,
+    applicants: j.applications_count || j.application_count || j.applicants || 0,
     status:
       j.is_active != null
         ? j.is_active
