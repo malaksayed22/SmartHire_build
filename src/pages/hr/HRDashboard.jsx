@@ -6,6 +6,9 @@ import { STATUS_LABELS } from "../../data/mock";
 import {
   fetchHRJobsAndRankedApplicants,
   buildWeeklySeries,
+  normalizeStatus,
+  canonicalPostId,
+  applyApplicantPipelineMeta,
 } from "../../services/hrApplicants";
 import {
   BarChart,
@@ -66,10 +69,10 @@ export default function HRDashboard() {
       setLoadError(null);
       try {
         const { jobs: j, applicants: a } =
-          await fetchHRJobsAndRankedApplicants(24);
+          await fetchHRJobsAndRankedApplicants();
         if (!cancelled) {
           setJobs(j);
-          setApplicants(a);
+          setApplicants(applyApplicantPipelineMeta(a));
         }
       } catch (e) {
         if (!cancelled) setLoadError(e.message || "Could not load dashboard");
@@ -91,7 +94,7 @@ export default function HRDashboard() {
   const filtered =
     filter === "all"
       ? applicants
-      : applicants.filter((c) => c.status === filter);
+      : applicants.filter((c) => normalizeStatus(c.status) === filter);
   const statuses = [
     "all",
     "new",
@@ -102,8 +105,9 @@ export default function HRDashboard() {
     "rejected",
   ];
 
-  const shortlistedN = applicants.filter((c) => c.status === "shortlisted")
-    .length;
+  const shortlistedN = applicants.filter(
+    (c) => normalizeStatus(c.status) === "shortlisted",
+  ).length;
   const scored = applicants.filter((c) => c.score > 0);
   const avgScore =
     scored.length > 0
@@ -149,7 +153,7 @@ export default function HRDashboard() {
     const fromDates = buildWeeklySeries(applicants);
     if (fromDates) return fromDates;
     const pipe = applicants.filter((c) =>
-      ["shortlisted", "interview", "hired"].includes(c.status),
+      ["shortlisted", "interview", "hired"].includes(normalizeStatus(c.status)),
     ).length;
     return [{ week: "Totals", applications: displayCount, shortlisted: pipe }];
   }, [applicants, displayCount]);
@@ -157,7 +161,9 @@ export default function HRDashboard() {
   const jobsWithAvg = useMemo(() => {
     return jobs.map((job) => {
       const pid = job._id || job.id;
-      const jobC = applicants.filter((c) => c.postId === String(pid));
+      const jobC = applicants.filter(
+        (c) => canonicalPostId(c.postId) === canonicalPostId(pid),
+      );
       const avg = jobC.length
         ? Math.round(jobC.reduce((a, c) => a + c.score, 0) / jobC.length)
         : 0;
@@ -352,8 +358,9 @@ export default function HRDashboard() {
                     const color =
                       DEPT_DOT[job.department] || DEPT_DOT.General;
                     return (
-                      <div
+                      <Link
                         key={job._id || job.id}
+                        to={`/hr/candidates?post=${encodeURIComponent(canonicalPostId(job._id || job.id))}`}
                         style={{
                           display: "flex",
                           alignItems: "center",
@@ -362,6 +369,8 @@ export default function HRDashboard() {
                           borderRadius: 8,
                           transition: "background 0.15s",
                           cursor: "pointer",
+                          textDecoration: "none",
+                          color: "inherit",
                         }}
                         onMouseEnter={(e) =>
                           (e.currentTarget.style.background = "var(--b1)")
@@ -418,7 +427,7 @@ export default function HRDashboard() {
                             avg score
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>
@@ -494,7 +503,8 @@ export default function HRDashboard() {
                   >
                     {s === "all"
                       ? applicants.length
-                      : applicants.filter((c) => c.status === s).length}
+                      : applicants.filter((c) => normalizeStatus(c.status) === s)
+                          .length}
                   </span>
                 </button>
               ))}
@@ -594,7 +604,7 @@ export default function HRDashboard() {
                       </div>
                     </div>
                     <ScoreBadge score={c.score} showBar />
-                    <StatusPill status={c.status} />
+                    <StatusPill status={normalizeStatus(c.status)} />
                     <span
                       style={{ fontSize: 12.5, color: "var(--blue)" }}
                     >

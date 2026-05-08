@@ -44,14 +44,106 @@ async function extractError(res) {
   }
 }
 
+/** Best-effort applicant count from various backend field names */
+function pickApplicantCount(j) {
+  if (!j || typeof j !== "object") return 0;
+  const tryKeys = [
+    "applications_count",
+    "application_count",
+    "applicationsCount",
+    "applicants_count",
+    "num_applicants",
+    "total_applications",
+    "totalApplicants",
+    "applicant_count",
+    "resume_count",
+    "submissions_count",
+    "submitted_count",
+    "applications",
+    "applicants",
+  ];
+  for (const k of tryKeys) {
+    const v = j[k];
+    if (v == null || v === "") continue;
+    const n = Number(v);
+    if (!Number.isNaN(n) && n >= 0) return n;
+  }
+  const nested =
+    j.stats ||
+    j.metrics ||
+    j.counters ||
+    j.meta ||
+    j.summary ||
+    j.application_stats;
+  if (nested && typeof nested === "object") {
+    for (const k of tryKeys) {
+      const v = nested[k];
+      if (v == null || v === "") continue;
+      const n = Number(v);
+      if (!Number.isNaN(n) && n >= 0) return n;
+    }
+  }
+  return 0;
+}
+
+/** intelligent-cv returns `{ success, message, data: JobPost[] }`; unwrap to an array */
+export function extractJobArray(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (payload.success === true && payload.data != null) {
+    const inner = payload.data;
+    if (Array.isArray(inner)) return inner;
+    if (inner && typeof inner === "object") {
+      if (Array.isArray(inner.posts)) return inner.posts;
+      if (Array.isArray(inner.jobs)) return inner.jobs;
+    }
+  }
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.posts)) return payload.posts;
+  if (Array.isArray(payload.jobs)) return payload.jobs;
+  return [];
+}
+
 /** Normalize API job shape → UI-compatible shape */
 export function normalizeJob(j) {
+  if (!j || typeof j !== "object") {
+    return {
+      id: "",
+      _id: "",
+      title: "Job",
+      department: "General",
+      location: "—",
+      type: "Full-time",
+      salary: "Competitive",
+      posted: new Date().toISOString().split("T")[0],
+      applicants: 0,
+      status: "active",
+      description: "",
+      responsibilities: [],
+      requirements: [],
+      nice: [],
+      skills: [],
+      color: "blue",
+    };
+  }
+
   const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
-  const salaryStr =
-    j.salary_min != null && j.salary_max != null
-      ? `${j.salary_currency || "$"}${Number(j.salary_min).toLocaleString()} – ${j.salary_currency || "$"}${Number(j.salary_max).toLocaleString()}/${j.salary_period || "mo"}`
-      : j.salary || "Competitive";
+  /** Railway / intelligent-cv uses nested `salary: { min, max, currency, period }` — never pass through as object or React crashes */
+  let salaryStr = "Competitive";
+  if (
+    j.salary &&
+    typeof j.salary === "object" &&
+    j.salary.min != null &&
+    j.salary.max != null
+  ) {
+    const c = j.salary.currency || "$";
+    salaryStr = `${c}${Number(j.salary.min).toLocaleString()} – ${c}${Number(j.salary.max).toLocaleString()}/${j.salary.period || "mo"}`;
+  } else if (j.salary_min != null && j.salary_max != null) {
+    salaryStr = `${j.salary_currency || "$"}${Number(j.salary_min).toLocaleString()} – ${j.salary_currency || "$"}${Number(j.salary_max).toLocaleString()}/${j.salary_period || "mo"}`;
+  } else if (typeof j.salary === "string" && j.salary.trim()) {
+    salaryStr = j.salary.trim();
+  }
 
   const toArray = (v) =>
     Array.isArray(v)
@@ -70,13 +162,20 @@ export function normalizeJob(j) {
     department: j.department || capitalize(j.work_mode) || "General",
     location: capitalize(j.work_mode) || "On-site",
     type: j.employment_type
-      ? j.employment_type.split("-").map(capitalize).join("-")
+      ? String(j.employment_type)
+          .split("-")
+          .map(capitalize)
+          .join("-")
       : j.type || "Full-time",
     salary: salaryStr,
-    posted: j.created_at
-      ? j.created_at.split("T")[0]
-      : j.posted || new Date().toISOString().split("T")[0],
-    applicants: j.applications_count || j.applicants || 0,
+    posted: (() => {
+      const raw =
+        j.created_at || j.createdAt || j.posted_at || j.posted || j.postedAt;
+      if (raw == null) return new Date().toISOString().split("T")[0];
+      const s = typeof raw === "string" ? raw : String(raw);
+      return s.includes("T") ? s.split("T")[0] : s.slice(0, 10);
+    })(),
+    applicants: pickApplicantCount(j),
     status:
       j.is_active != null
         ? j.is_active
@@ -159,11 +258,9 @@ export async function getActiveJobs() {
   const res = await apiFetch(`${BASE_URL}/candidate/get-posts`, {
     credentials: "include",
   });
-  if (!res.ok) throw new Error("Failed to fetch jobs");
-  const data = await res.json();
-  return Array.isArray(data)
-    ? data
-    : data.posts || data.data || data.jobs || [];
+  if (!res.ok) throw new Error(await extractError(res));
+  const payload = await res.json();
+  return extractJobArray(payload);
 }
 
 // ── Jobs (HR) ─────────────────────────────────────────────────────────────────
@@ -172,11 +269,9 @@ export async function getHRJobs() {
   const res = await apiFetch(`${BASE_URL}/hr/get-posts`, {
     credentials: "include",
   });
-  if (!res.ok) throw new Error("Failed to fetch HR jobs");
-  const data = await res.json();
-  return Array.isArray(data)
-    ? data
-    : data.posts || data.data || data.jobs || [];
+  if (!res.ok) throw new Error(await extractError(res));
+  const payload = await res.json();
+  return extractJobArray(payload);
 }
 
 export async function addJobPost(data) {
@@ -218,20 +313,84 @@ export async function deleteJobPost(id) {
 }
 
 export async function rankCandidatesByPost(postId) {
+  const q = encodeURIComponent(String(postId ?? "").trim());
   const res = await apiFetch(
-    `${BASE_URL}/hr/rank-candidates?post_id=${encodeURIComponent(postId)}`,
+    `${BASE_URL}/hr/rank-candidates?post_id=${q}&job_id=${q}`,
     { credentials: "include" },
   );
   if (!res.ok) throw new Error(await extractError(res));
   return res.json();
 }
 
+/**
+ * Persist pipeline status for an application (HR). If the backend has no route,
+ * callers should still use setApplicantPipelineMeta for local UX.
+ */
+export async function updateHRApplicationStatus({
+  applicationId,
+  postId,
+  status,
+}) {
+  if (!applicationId || !status) {
+    throw new Error("applicationId and status are required");
+  }
+  const form = new FormData();
+  form.append("application_id", String(applicationId));
+  form.append("_id", String(applicationId));
+  if (postId != null && String(postId) !== "") {
+    form.append("post_id", String(postId));
+  }
+  form.append("status", String(status));
+  const res = await apiFetch(`${BASE_URL}/hr/update-application-status`, {
+    method: "PUT",
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
 // ── Applications ──────────────────────────────────────────────────────────────
 
-export async function submitApplication(postId, file) {
+/**
+ * @param {string} postId
+ * @param {File} file
+ * @param {object} [meta] - contact fields many Railway/FastAPI backends expect alongside the file
+ */
+export async function submitApplication(postId, file, meta = {}) {
   const form = new FormData();
-  form.append("post_id", postId);
+  const pid = String(postId ?? "").trim();
+  form.append("post_id", pid);
+  form.append("job_id", pid);
   form.append("file", file);
+  const m = meta && typeof meta === "object" ? meta : {};
+  const name = String(m.name ?? "").trim();
+  const email = String(m.email ?? "").trim();
+  const phone = String(m.phone ?? "").trim();
+  const linkedin = String(m.linkedin ?? "").trim();
+  const cover = String(m.coverLetter ?? m.cover ?? "").trim();
+
+  if (name) {
+    form.append("name", name);
+    form.append("full_name", name);
+    form.append("candidate_name", name);
+  }
+  if (email) {
+    form.append("email", email);
+    form.append("candidate_email", email);
+  }
+  if (phone) {
+    form.append("phone", phone);
+    form.append("phone_number", phone);
+  }
+  if (linkedin) {
+    form.append("linkedin", linkedin);
+    form.append("linkedin_url", linkedin);
+  }
+  if (cover) {
+    form.append("cover_letter", cover);
+  }
+
   const res = await apiFetch(
     `${BASE_URL}/candidate/submit-application`,
     opts("POST", form),

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import HRSidebar from "../../components/HRSidebar";
 import {
   Avatar,
@@ -13,17 +13,25 @@ import {
   fetchHRJobsAndRankedApplicants,
   parseRankList,
   normalizeRankRow,
+  normalizeStatus,
+  canonicalPostId,
+  applyApplicantPipelineMeta,
 } from "../../services/hrApplicants";
 import { rankCandidatesByPost } from "../../services/api";
 
 export default function HRCandidates() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const selectedPostId = useMemo(() => {
+    const sp = new URLSearchParams(location.search);
+    return canonicalPostId(sp.get("post") || sp.get("post_id") || "");
+  }, [location.search]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [sortBy, setSortBy] = useState("score");
   const [ranking, setRanking] = useState(false);
   const [jobPosts, setJobPosts] = useState([]);
   const [applicants, setApplicants] = useState([]);
-  const [selectedPostId, setSelectedPostId] = useState("");
   const [rankResults, setRankResults] = useState(null);
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -32,9 +40,9 @@ export default function HRCandidates() {
     setLoading(true);
     try {
       const { jobs, applicants: a } =
-        await fetchHRJobsAndRankedApplicants(24);
+        await fetchHRJobsAndRankedApplicants();
       setJobPosts(jobs);
-      setApplicants(a);
+      setApplicants(applyApplicantPipelineMeta(a));
     } catch (e) {
       setToast({
         message: e.message || "Could not load candidates",
@@ -80,7 +88,8 @@ export default function HRCandidates() {
           data?.results ||
           [];
       const job = jobPosts.find(
-        (p) => String(p._id || p.id) === String(selectedPostId),
+        (p) =>
+          canonicalPostId(p._id || p.id) === canonicalPostId(selectedPostId),
       );
       const title = job?.title || "";
       const rows = parseRankList(data).map((r) =>
@@ -90,7 +99,8 @@ export default function HRCandidates() {
 
       setApplicants((prev) => {
         const rest = prev.filter(
-          (c) => String(c.postId) !== String(selectedPostId),
+          (c) =>
+            canonicalPostId(c.postId) !== canonicalPostId(selectedPostId),
         );
         const ids = new Set(rest.map((c) => c.id));
         const next = [...rest];
@@ -100,7 +110,7 @@ export default function HRCandidates() {
             next.push(r);
           }
         }
-        return next;
+        return applyApplicantPipelineMeta(next);
       });
       setToast({ message: "Ranking updated for this post.", type: "success" });
       setTimeout(() => setToast(null), 3000);
@@ -119,26 +129,32 @@ export default function HRCandidates() {
   };
 
   const selectedJobTitle = selectedPostId
-    ? jobPosts.find((p) => String(p._id || p.id) === String(selectedPostId))
-        ?.title || ""
+    ? jobPosts.find(
+        (p) =>
+          canonicalPostId(p._id || p.id) === canonicalPostId(selectedPostId),
+      )?.title || ""
     : "";
 
   const baseList = selectedPostId
     ? applicants.filter(
-        (c) => String(c.postId) === String(selectedPostId),
+        (c) =>
+          canonicalPostId(c.postId) === canonicalPostId(selectedPostId),
       )
     : applicants;
 
+  const safe = (v) => String(v ?? "").toLowerCase();
+
   const filtered = baseList
     .filter((c) => {
-      const s = search.toLowerCase();
+      const q = search.toLowerCase();
       const matchSearch =
-        !s ||
-        c.name.toLowerCase().includes(s) ||
-        c.appliedRole.toLowerCase().includes(s) ||
-        (c.email && c.email.toLowerCase().includes(s)) ||
-        c.location.toLowerCase().includes(s);
-      const matchStatus = filter === "all" || c.status === filter;
+        !q ||
+        safe(c.name).includes(q) ||
+        safe(c.appliedRole).includes(q) ||
+        safe(c.email).includes(q) ||
+        safe(c.location).includes(q);
+      const canon = normalizeStatus(c.status);
+      const matchStatus = filter === "all" || canon === filter;
       return matchSearch && matchStatus;
     })
     .sort((a, b) => {
@@ -220,7 +236,16 @@ export default function HRCandidates() {
             <select
               className="input"
               value={selectedPostId}
-              onChange={(e) => setSelectedPostId(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v) {
+                  navigate(`/hr/candidates?post=${encodeURIComponent(v)}`, {
+                    replace: true,
+                  });
+                } else {
+                  navigate("/hr/candidates", { replace: true });
+                }
+              }}
               style={{
                 height: 32,
                 fontSize: 12.5,
@@ -230,7 +255,10 @@ export default function HRCandidates() {
             >
               <option value="">All jobs</option>
               {jobPosts.map((p) => (
-                <option key={p._id || p.id} value={p._id || p.id}>
+                <option
+                  key={canonicalPostId(p._id || p.id)}
+                  value={canonicalPostId(p._id || p.id)}
+                >
                   {p.title}
                 </option>
               ))}
@@ -398,7 +426,8 @@ export default function HRCandidates() {
                 >
                   {s === "all"
                     ? baseList.length
-                    : baseList.filter((c) => c.status === s).length}
+                    : baseList.filter((c) => normalizeStatus(c.status) === s)
+                        .length}
                 </span>
               </button>
             ))}
@@ -533,7 +562,7 @@ export default function HRCandidates() {
                     </div>
                   </div>
                   <ScoreBadge score={c.score} showBar />
-                  <StatusPill status={c.status} />
+                  <StatusPill status={normalizeStatus(c.status)} />
                   <div style={{ fontSize: 12.5, color: "var(--m2)" }}>
                     {daysAgo == null
                       ? "—"

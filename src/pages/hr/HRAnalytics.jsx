@@ -16,6 +16,8 @@ import {
 import {
   fetchHRJobsAndRankedApplicants,
   buildWeeklySeries,
+  normalizeStatus,
+  applyApplicantPipelineMeta,
 } from "../../services/hrApplicants";
 
 const STATUS_PIE_COLORS = {
@@ -64,10 +66,10 @@ export default function HRAnalytics() {
       setError(null);
       try {
         const { jobs: j, applicants } =
-          await fetchHRJobsAndRankedApplicants(24);
+          await fetchHRJobsAndRankedApplicants();
         if (cancelled) return;
         setJobs(j);
-        setCandidates(applicants);
+        setCandidates(applyApplicantPipelineMeta(applicants));
       } catch (e) {
         if (!cancelled) setError(e.message || "Failed to load analytics");
       } finally {
@@ -93,7 +95,7 @@ export default function HRAnalytics() {
         ) / 10
       : null;
   const inFunnel = candidates.filter((c) =>
-    ["shortlisted", "interview", "hired"].includes(c.status),
+    ["shortlisted", "interview", "hired"].includes(normalizeStatus(c.status)),
   ).length;
   const shortlistRate =
     candidates.length > 0
@@ -126,7 +128,7 @@ export default function HRAnalytics() {
     return keys
       .map((k) => ({
         name: STATUS_LABELS[k] || k,
-        value: candidates.filter((c) => c.status === k).length,
+        value: candidates.filter((c) => normalizeStatus(c.status) === k).length,
         color: STATUS_PIE_COLORS[k],
         key: k,
       }))
@@ -477,8 +479,11 @@ export default function HRAnalytics() {
                         paddingAngle={3}
                         dataKey="value"
                       >
-                        {statusDist.map((entry, i) => (
-                          <Cell key={i} fill={entry.color} />
+                        {statusDist.map((entry) => (
+                          <Cell
+                            key={entry.key}
+                            fill={entry.color || STATUS_PIE_COLORS[entry.key]}
+                          />
                         ))}
                       </Pie>
                       <Tooltip
@@ -500,9 +505,9 @@ export default function HRAnalytics() {
                       gap: 8,
                     }}
                   >
-                    {statusDist.map((d, i) => (
+                    {statusDist.map((d) => (
                       <div
-                        key={i}
+                        key={d.key}
                         style={{ display: "flex", alignItems: "center", gap: 8 }}
                       >
                         <div
