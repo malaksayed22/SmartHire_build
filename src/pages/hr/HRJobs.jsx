@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import HRSidebar from "../../components/HRSidebar";
 import { DeptTag, Toast } from "../../components/UI";
+import { JOBS, CANDIDATES } from "../../data/mock";
 
 export default function HRJobs() {
   const [showModal, setShowModal] = useState(false);
@@ -28,26 +29,17 @@ export default function HRJobs() {
     requirements: "",
     skills: "",
   });
-  const [jobs, setJobs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [jobs, setJobs] = useState(JOBS);
 
   // Fetch real jobs from backend on mount
   useEffect(() => {
     (async () => {
-      setLoading(true);
       try {
         const { getHRJobs, normalizeJob } = await import("../../services/api");
         const data = await getHRJobs();
-        if (Array.isArray(data)) {
-          setJobs(data.map(normalizeJob));
-        } else {
-          setJobs([]);
-        }
-      } catch {
-        setJobs([]);
-      } finally {
-        setLoading(false);
-      }
+        if (Array.isArray(data))
+          setJobs(data.length ? data.map(normalizeJob) : []);
+      } catch {}
     })();
   }, []);
 
@@ -65,7 +57,7 @@ export default function HRJobs() {
     try {
       const { addJobPost, getHRJobs, normalizeJob } =
         await import("../../services/api");
-      // Parse salary range e.g. "$3,000 - $5,000/mo"
+      // Parse salary range e.g. "$3,000 – $5,000/mo"
       const nums = (form.salary || "").match(/[\d,]+/g) || [];
       const salary_min = nums[0] ? parseInt(nums[0].replace(/,/g, ""), 10) : 0;
       const salary_max = nums[1]
@@ -225,9 +217,8 @@ export default function HRJobs() {
               Job Posts
             </h1>
             <div style={{ fontSize: 12.5, color: "var(--m2)", marginTop: 2 }}>
-              {loading
-                ? "Loading jobs..."
-                : `${jobs.filter((j) => j.status === "active").length} active · ${jobs.length} total`}
+              {jobs.filter((j) => j.status === "active").length} active ·{" "}
+              {jobs.length} total
             </div>
           </div>
           <button
@@ -261,11 +252,9 @@ export default function HRJobs() {
               },
               {
                 label: "Avg. Per Role",
-                value: jobs.length
-                  ? Math.round(
-                      jobs.reduce((a, j) => a + j.applicants, 0) / jobs.length,
-                    )
-                  : 0,
+                value: Math.round(
+                  jobs.reduce((a, j) => a + j.applicants, 0) / jobs.length,
+                ),
                 color: "#8B70F5",
               },
             ].map((s, i) => (
@@ -309,7 +298,7 @@ export default function HRJobs() {
                     color: "var(--text)",
                   }}
                 >
-                  {loading ? "..." : s.value}
+                  {s.value}
                 </div>
               </div>
             ))}
@@ -360,18 +349,7 @@ export default function HRJobs() {
                 </div>
               ))}
             </div>
-            {loading && (
-              <div style={{ padding: "16px 20px", color: "var(--m2)" }}>
-                Loading jobs...
-              </div>
-            )}
-            {!loading && jobs.length === 0 && (
-              <div style={{ padding: "16px 20px", color: "var(--m2)" }}>
-                No jobs yet.
-              </div>
-            )}
-            {!loading &&
-              jobs.map((job) => {
+            {jobs.map((job) => {
               const daysAgo = Math.floor(
                 (Date.now() - new Date(job.posted)) / 86400000,
               );

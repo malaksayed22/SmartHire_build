@@ -1,8 +1,14 @@
-// src/services/api.js — Main SmartHire backend
+// src/services/api.js — Main SmartHire backend (proxied via Vite → http://localhost:3000)
 
-// Use /api prefix — Vite dev server proxies /api/* → localhost:3000/*
-// In production build, set VITE_API_BASE_URL to the real backend URL
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").trim() || "/api";
+// Dev: Vite proxies /api/* → localhost:3000/* (see vite.config.js).
+// Prod: use VITE_API_BASE_URL if set; otherwise call Railway directly (CORS + credentials
+// are configured for smart-hire-build.vercel.app). This avoids relying on Vercel /api rewrites.
+const trimmedEnv = (import.meta.env.VITE_API_BASE_URL || "").trim();
+const BASE_URL =
+  trimmedEnv ||
+  (import.meta.env.DEV
+    ? "/api"
+    : "https://intelligent-cv-production.up.railway.app");
 
 // All requests include cookies for session auth
 const opts = (method, body) => ({ method, credentials: "include", body });
@@ -42,14 +48,9 @@ async function extractError(res) {
 export function normalizeJob(j) {
   const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
-  const salaryMin = j.salary_min ?? j.salary?.min;
-  const salaryMax = j.salary_max ?? j.salary?.max;
-  const salaryCurrency = j.salary_currency || j.salary?.currency || "$";
-  const salaryPeriod = j.salary_period || j.salary?.period || "mo";
-
   const salaryStr =
-    salaryMin != null && salaryMax != null
-      ? `${salaryCurrency}${Number(salaryMin).toLocaleString()} – ${salaryCurrency}${Number(salaryMax).toLocaleString()}/${salaryPeriod}`
+    j.salary_min != null && j.salary_max != null
+      ? `${j.salary_currency || "$"}${Number(j.salary_min).toLocaleString()} – ${j.salary_currency || "$"}${Number(j.salary_max).toLocaleString()}/${j.salary_period || "mo"}`
       : j.salary || "Competitive";
 
   const toArray = (v) =>
@@ -65,19 +66,17 @@ export function normalizeJob(j) {
   return {
     id: j._id || j.id,
     _id: j._id || j.id,
-    title: String(j.title || "Untitled role"),
+    title: j.title,
     department: j.department || capitalize(j.work_mode) || "General",
     location: capitalize(j.work_mode) || "On-site",
     type: j.employment_type
       ? j.employment_type.split("-").map(capitalize).join("-")
       : j.type || "Full-time",
     salary: salaryStr,
-    posted:
-      j.created_at || j.posted_at
-        ? (j.created_at || j.posted_at).split("T")[0]
-        : j.posted || new Date().toISOString().split("T")[0],
-    applicants:
-      j.applications_count || j.application_count || j.applicants || 0,
+    posted: j.created_at
+      ? j.created_at.split("T")[0]
+      : j.posted || new Date().toISOString().split("T")[0],
+    applicants: j.applications_count || j.applicants || 0,
     status:
       j.is_active != null
         ? j.is_active
@@ -225,27 +224,6 @@ export async function rankCandidatesByPost(postId) {
   );
   if (!res.ok) throw new Error(await extractError(res));
   return res.json();
-}
-
-export async function getHrApplications(postId) {
-  const query = postId ? `?post_id=${encodeURIComponent(postId)}` : "";
-  const res = await apiFetch(`${BASE_URL}/hr/applications${query}`, {
-    credentials: "include",
-  });
-  if (!res.ok) throw new Error(await extractError(res));
-  const data = await res.json();
-  return Array.isArray(data)
-    ? data
-    : data.applications || data.data || data.results || data.items || [];
-}
-
-export async function getHrApplicationById(id) {
-  const res = await apiFetch(`${BASE_URL}/hr/applications/${id}`, {
-    credentials: "include",
-  });
-  if (!res.ok) throw new Error(await extractError(res));
-  const data = await res.json();
-  return data.application || data.data || data.result || data;
 }
 
 // ── Applications ──────────────────────────────────────────────────────────────

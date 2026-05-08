@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import PublicNav from "../../components/PublicNav";
 import { DeptTag } from "../../components/UI";
+import { JOBS } from "../../data/mock";
 import { useAuth } from "../../context/AuthContext";
 
 export default function JobDetail() {
@@ -9,7 +10,8 @@ export default function JobDetail() {
   const navigate = useNavigate();
   const { candidateUser } = useAuth();
   const [apiJob, setApiJob] = useState(null);
-  const job = apiJob;
+  const mockJob = JOBS.find((j) => j.id === id);
+  const job = apiJob || mockJob;
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -89,40 +91,50 @@ export default function JobDetail() {
   };
 
   const handleSubmit = async () => {
-    if (!candidateUser) {
-      const redirect = encodeURIComponent(`/jobs/${id}`);
-      setAiError("Please sign in to apply for this role.");
-      navigate(`/candidate/login?redirect=${redirect}`);
-      return;
-    }
     if (!form.name || !form.email || !file) return;
     setSubmitting(true);
     setAiError(null);
     try {
-      if (!job?._id) {
-        throw new Error(
-          "This job is not linked to the live backend yet. Please return to jobs and open an active listing.",
-        );
-      }
-
-      // Live backend path only — persist application first, then score.
-      const { scoreResumeByJob, submitApplication } =
-        await import("../../services/api");
-      await submitApplication(job._id, file);
-      try {
-        const scored = await scoreResumeByJob(job._id, file);
-        const raw = unwrapScorePayload(scored);
+      if (job._id) {
+        // Real DB job — persist application first, score as a best-effort enhancement.
+        const { scoreResumeByJob, submitApplication } =
+          await import("../../services/api");
+        await submitApplication(job._id, file);
+        try {
+          const scored = await scoreResumeByJob(job._id, file);
+          const raw = unwrapScorePayload(scored);
+          setAiResult({
+            score: raw.score ?? raw.match_score ?? raw.percentage ?? 0,
+            summary: raw.summary ?? raw.feedback ?? raw.analysis ?? "",
+            strengths: raw.strengths ?? raw.pros ?? [],
+            weaknesses: raw.weaknesses ?? raw.cons ?? raw.improvements ?? [],
+          });
+        } catch (scoreErr) {
+          console.warn("Resume scoring failed after submission:", scoreErr);
+          setAiError(
+            "Application submitted successfully, but AI scoring is temporarily unavailable.",
+          );
+        }
+      } else {
+        // Demo/mock job — generate a simulated score for the preview
+        const seed = file.name
+          .split("")
+          .reduce((a, c) => a + c.charCodeAt(0), 0);
+        const demoScore = 62 + (seed % 28); // deterministic 62–89
         setAiResult({
-          score: raw.score ?? raw.match_score ?? raw.percentage ?? 0,
-          summary: raw.summary ?? raw.feedback ?? raw.analysis ?? "",
-          strengths: raw.strengths ?? raw.pros ?? [],
-          weaknesses: raw.weaknesses ?? raw.cons ?? raw.improvements ?? [],
+          score: demoScore,
+          summary:
+            "Your resume was analysed against the job requirements. This is a simulated preview score — connect to the live backend for a real AI evaluation.",
+          strengths: [
+            "Strong keyword alignment with job description",
+            "Relevant experience detected",
+            "Clear formatting and structure",
+          ],
+          weaknesses: [
+            "Some required skills could be highlighted more prominently",
+            "Consider quantifying achievements with metrics",
+          ],
         });
-      } catch (scoreErr) {
-        console.warn("Resume scoring failed after submission:", scoreErr);
-        setAiError(
-          "Application submitted successfully, but AI scoring is temporarily unavailable.",
-        );
       }
       setSubmitted(true);
     } catch (err) {
@@ -653,31 +665,6 @@ function JobAIChat({ job }) {
 
   const jobDesc = `${job.title}\n\nDepartment: ${job.department}\nLocation: ${job.location}\nSalary: ${job.salary}\n\n${job.description}\n\nRequirements:\n${job.requirements.join("\n")}\n\nNice to have:\n${(job.nice || []).join("\n")}`;
 
-  const extractChatAnswer = (payload) => {
-    const queue = [payload];
-    let depth = 0;
-
-    while (queue.length > 0 && depth < 30) {
-      const current = queue.shift();
-      depth += 1;
-      if (!current || typeof current !== "object") continue;
-
-      for (const key of ["answer", "text", "response", "content"]) {
-        if (typeof current[key] === "string" && current[key].trim()) {
-          return current[key].trim();
-        }
-      }
-
-      for (const key of ["result", "data", "payload"]) {
-        if (current[key] != null) {
-          queue.push(current[key]);
-        }
-      }
-    }
-
-    return "";
-  };
-
   const send = async (text) => {
     if (!text.trim() || loading) return;
     setMessages((prev) => [...prev, { from: "user", text: text.trim() }]);
@@ -697,7 +684,9 @@ function JobAIChat({ job }) {
       const { chatByJob } = await import("../../services/api");
       const data = await chatByJob(job._id, text.trim());
       const answer =
-        extractChatAnswer(data) || "I couldn't generate a response right now.";
+        data.result?.answer ||
+        data.answer ||
+        "I couldn't generate a response right now.";
       setMessages((prev) => [...prev, { from: "bot", text: answer }]);
     } catch {
       setMessages((prev) => [

@@ -33,6 +33,19 @@ export function AuthProvider({ children }) {
     })();
   }, [candidateUser]);
 
+  useEffect(() => {
+    (async () => {
+      if (!hrUser) return;
+      try {
+        const { getHRJobs } = await import("../services/api");
+        await getHRJobs();
+      } catch {
+        setHrUser(null);
+        localStorage.removeItem("sh_hr_user");
+      }
+    })();
+  }, [hrUser]);
+
   const deriveNameFromEmail = (email) => {
     const local = (email || "").split("@")[0];
     return (
