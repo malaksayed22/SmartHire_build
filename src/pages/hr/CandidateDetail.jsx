@@ -1,160 +1,52 @@
-import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useState, useEffect, useMemo } from "react";
+import { useParams, Link, useLocation } from "react-router-dom";
 import HRSidebar from "../../components/HRSidebar";
 import { Avatar, StatusPill, Toast } from "../../components/UI";
 import { CANDIDATES, STATUS_LABELS, getScoreColor } from "../../data/mock";
+import { toDetailCandidate } from "../../services/hrApplicants";
 
 export default function CandidateDetail() {
   const { id } = useParams();
-  const [candidate, setCandidate] = useState(null);
-  const [status, setStatus] = useState("new");
-  const [notes, setNotes] = useState("");
-  const [toast, setToast] = useState(null);
-  const [activeTab, setActiveTab] = useState("overview");
-  const [loading, setLoading] = useState(true);
+  const location = useLocation();
+  const passed = location.state?.applicant;
 
-  const normalizeStatus = (value) => {
-    const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
-    if (raw === "pending") return "new";
-    const allowed = new Set([
-      "new",
-      "reviewing",
-      "shortlisted",
-      "interview",
-      "hired",
-      "rejected",
-    ]);
-    return allowed.has(raw) ? raw : "new";
-  };
-
-  const buildInitials = (name) => {
-    if (!name) return "NA";
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    const letters = parts.slice(0, 2).map((part) => part[0].toUpperCase());
-    return letters.join("") || "NA";
-  };
-
-  const normalizeCandidateFromApplication = (app) => {
-    if (!app) return null;
-    const name =
-      app?.candidate?.name || app?.candidate_name || app?.name || "Candidate";
-    const email =
-      app?.candidate?.email || app?.candidate_email || app?.email || "";
-    const phone = app?.candidate?.phone || app?.phone || "";
-    const role = app?.job?.title || app?.appliedRole || "";
-    const location =
-      app?.job?.work_mode || app?.job?.location || app?.location || "";
-    const scoreValue = Number(
-      app?.score?.value ?? app?.score ?? app?.resume_rate ?? 0,
-    );
-
-    return {
-      id: app?._id || app?.id || id,
-      candidateId: app?.candidate?.id || app?.candidate_id || "",
-      name,
-      email,
-      phone,
-      linkedin: app?.linkedin || "",
-      location,
-      appliedRole: role,
-      appliedDate: app?.appliedDate || app?.createdAt || "",
-      status: normalizeStatus(app?.status || app?.statue),
-      score: Number.isFinite(scoreValue) ? scoreValue : 0,
-      summary: app?.score?.summary || app?.summary || "",
-      strengths: Array.isArray(app?.score?.strengths)
-        ? app.score.strengths
-        : Array.isArray(app?.strengths)
-          ? app.strengths
-          : [],
-      weaknesses: Array.isArray(app?.score?.weaknesses)
-        ? app.score.weaknesses
-        : Array.isArray(app?.weaknesses)
-          ? app.weaknesses
-          : [],
-      experience: app?.experience || "",
-      education: app?.education || "",
-      skills: Array.isArray(app?.skills) ? app.skills : [],
-      scoreBreakdown: app?.scoreBreakdown || {
-        skills: 0,
-        experience: 0,
-        education: 0,
-      },
-      avatar: buildInitials(name),
-      avatarColor: app?.avatarColor || "blue",
-      emails: Array.isArray(app?.emails) ? app.emails : [],
-      notes: app?.notes || "",
-    };
-  };
-
-  useEffect(() => {
-    let isActive = true;
-
-    (async () => {
-      setLoading(true);
-      try {
-        const { getHrApplicationById } = await import("../../services/api");
-        const app = await getHrApplicationById(id);
-        const normalized = normalizeCandidateFromApplication(app);
-        if (isActive) {
-          setCandidate(normalized);
-          setStatus(normalized?.status || "new");
-          setNotes(normalized?.notes || "");
-        }
-      } catch {
-        const fallback = CANDIDATES.find((c) => c.id === id) || null;
-        if (isActive) {
-          setCandidate(fallback);
-          setStatus(fallback?.status || "new");
-          setNotes(fallback?.notes || "");
-        }
-      } finally {
-        if (isActive) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      isActive = false;
-    };
+  const stored = useMemo(() => {
+    if (!id) return null;
+    try {
+      const raw = sessionStorage.getItem(`hr_applicant_${id}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
   }, [id]);
 
-  if (loading) {
-    return (
-      <div
-        style={{ display: "flex", height: "100vh", background: "var(--bg)" }}
-      >
-        <HRSidebar />
-        <main
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexDirection: "column",
-            gap: 16,
-          }}
-        >
-          <div style={{ fontSize: 36 }}>⏳</div>
-          <div
-            style={{
-              fontFamily: "'Syne', sans-serif",
-              fontSize: 20,
-              fontWeight: 700,
-            }}
-          >
-            Loading candidate...
-          </div>
-        </main>
-      </div>
-    );
-  }
+  const mock = CANDIDATES.find((c) => c.id === id);
+  const source = passed || stored || mock;
+  const candidate = toDetailCandidate(source);
 
-  if (!candidate)
+  const [status, setStatus] = useState(candidate?.status || "new");
+  const [notes, setNotes] = useState(candidate?.notes || "");
+  const [toast, setToast] = useState(null);
+  const [activeTab, setActiveTab] = useState("overview");
+
+  useEffect(() => {
+    if (passed && id) {
+      try {
+        sessionStorage.setItem(`hr_applicant_${id}`, JSON.stringify(passed));
+      } catch (_) {}
+    }
+  }, [passed, id]);
+
+  useEffect(() => {
+    if (candidate) {
+      setStatus(candidate.status || "new");
+      setNotes(candidate.notes || "");
+    }
+  }, [candidate?.id]);
+
+  if (!candidate) {
     return (
-      <div
-        style={{ display: "flex", height: "100vh", background: "var(--bg)" }}
-      >
+      <div style={{ display: "flex", height: "100vh", background: "var(--bg)" }}>
         <HRSidebar />
         <main
           style={{
@@ -182,6 +74,7 @@ export default function CandidateDetail() {
         </main>
       </div>
     );
+  }
 
   const scoreColor = {
     teal: "var(--teal)",
@@ -194,20 +87,9 @@ export default function CandidateDetail() {
     interview: "violet",
     rejection: "red",
   };
-  const appliedDateValue = candidate.appliedDate
-    ? new Date(candidate.appliedDate)
-    : null;
-  const appliedDateText =
-    appliedDateValue && !Number.isNaN(appliedDateValue.getTime())
-      ? appliedDateValue.toLocaleDateString("en-US", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        })
-      : "—";
 
   const handleSave = () => {
-    setToast({ message: "Changes saved successfully", type: "success" });
+    setToast({ message: "Changes saved locally (demo)", type: "success" });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -221,6 +103,14 @@ export default function CandidateDetail() {
   };
 
   const tabs = ["overview", "resume", "emails", "notes"];
+  const emails = candidate.emails || [];
+  const appliedStr = candidate.appliedDate
+    ? new Date(candidate.appliedDate).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "—";
 
   return (
     <div
@@ -240,7 +130,6 @@ export default function CandidateDetail() {
           flexDirection: "column",
         }}
       >
-        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -288,7 +177,9 @@ export default function CandidateDetail() {
             </span>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-            <button className="btn btn-ghost btn-sm">Download Resume</button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled>
+              Download Resume
+            </button>
             <Link
               to={`mailto:${candidate.email}`}
               className="btn btn-ghost btn-sm"
@@ -299,7 +190,6 @@ export default function CandidateDetail() {
         </div>
 
         <div style={{ display: "flex", gap: 0, flex: 1, overflow: "hidden" }}>
-          {/* Left Panel */}
           <div
             style={{
               width: 320,
@@ -309,7 +199,6 @@ export default function CandidateDetail() {
               flexShrink: 0,
             }}
           >
-            {/* Profile */}
             <div style={{ textAlign: "center", marginBottom: 24 }}>
               <Avatar
                 initials={candidate.avatar}
@@ -328,14 +217,17 @@ export default function CandidateDetail() {
                 {candidate.name}
               </h2>
               <div
-                style={{ fontSize: 13.5, color: "var(--m1)", marginBottom: 8 }}
+                style={{
+                  fontSize: 13.5,
+                  color: "var(--m1)",
+                  marginBottom: 8,
+                }}
               >
                 {candidate.appliedRole}
               </div>
               <StatusPill status={status} />
             </div>
 
-            {/* AI Score */}
             <div
               className="card"
               style={{ padding: "20px", textAlign: "center", marginBottom: 16 }}
@@ -387,7 +279,6 @@ export default function CandidateDetail() {
                 />
               </div>
 
-              {/* Score breakdown */}
               <div
                 style={{
                   marginTop: 16,
@@ -396,51 +287,52 @@ export default function CandidateDetail() {
                   gap: 8,
                 }}
               >
-                {Object.entries(candidate.scoreBreakdown).map(([key, val]) => (
-                  <div key={key}>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        fontSize: 12,
-                        marginBottom: 4,
-                      }}
-                    >
-                      <span
-                        style={{
-                          color: "var(--m1)",
-                          textTransform: "capitalize",
-                        }}
-                      >
-                        {key}
-                      </span>
-                      <span style={{ color: "var(--text)", fontWeight: 600 }}>
-                        {val}%
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        height: 3,
-                        background: "var(--b1)",
-                        borderRadius: 2,
-                        overflow: "hidden",
-                      }}
-                    >
+                {Object.entries(candidate.scoreBreakdown || {}).map(
+                  ([key, val]) => (
+                    <div key={key}>
                       <div
                         style={{
-                          width: `${val}%`,
-                          height: "100%",
-                          background: scoreColor,
-                          borderRadius: 2,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: 12,
+                          marginBottom: 4,
                         }}
-                      />
+                      >
+                        <span
+                          style={{
+                            color: "var(--m1)",
+                            textTransform: "capitalize",
+                          }}
+                        >
+                          {key}
+                        </span>
+                        <span style={{ color: "var(--text)", fontWeight: 600 }}>
+                          {val}%
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          height: 3,
+                          background: "var(--b1)",
+                          borderRadius: 2,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${val}%`,
+                            height: "100%",
+                            background: scoreColor,
+                            borderRadius: 2,
+                          }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ),
+                )}
               </div>
             </div>
 
-            {/* Contact */}
             <div className="card" style={{ padding: 16, marginBottom: 16 }}>
               <div
                 style={{
@@ -455,9 +347,7 @@ export default function CandidateDetail() {
               >
                 Contact
               </div>
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 10 }}
-              >
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {[
                   ["📧", candidate.email],
                   ["📱", candidate.phone],
@@ -480,7 +370,6 @@ export default function CandidateDetail() {
               </div>
             </div>
 
-            {/* Change Status */}
             <div className="card" style={{ padding: 16, marginBottom: 16 }}>
               <label className="label">Update Status</label>
               <select
@@ -497,7 +386,6 @@ export default function CandidateDetail() {
               </select>
             </div>
 
-            {/* Quick Skills */}
             <div className="card" style={{ padding: 16 }}>
               <div
                 style={{
@@ -532,7 +420,6 @@ export default function CandidateDetail() {
             </div>
           </div>
 
-          {/* Right Panel */}
           <div
             style={{
               flex: 1,
@@ -541,7 +428,6 @@ export default function CandidateDetail() {
               flexDirection: "column",
             }}
           >
-            {/* Tabs */}
             <div
               style={{
                 display: "flex",
@@ -557,6 +443,7 @@ export default function CandidateDetail() {
               {tabs.map((t) => (
                 <button
                   key={t}
+                  type="button"
                   onClick={() => setActiveTab(t)}
                   style={{
                     padding: "14px 20px",
@@ -583,9 +470,7 @@ export default function CandidateDetail() {
 
             <div style={{ padding: "28px", flex: 1 }}>
               {activeTab === "overview" && (
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 24 }}
-                >
+                <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
                   <Section title="Summary">
                     <p
                       style={{
@@ -606,41 +491,32 @@ export default function CandidateDetail() {
                         gap: 12,
                       }}
                     >
-                      <InfoCard
-                        label="Experience"
-                        value={candidate.experience}
-                      />
+                      <InfoCard label="Experience" value={candidate.experience} />
                       <InfoCard label="Education" value={candidate.education} />
-                      <InfoCard label="Applied Date" value={appliedDateText} />
-                      <InfoCard
-                        label="Applied Role"
-                        value={candidate.appliedRole}
-                      />
+                      <InfoCard label="Applied Date" value={appliedStr} />
+                      <InfoCard label="Applied Role" value={candidate.appliedRole} />
                     </div>
                   </Section>
                   <Section title="Action Center">
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                       <button
+                        type="button"
                         className="btn btn-primary btn-sm"
-                        onClick={() => {
-                          handleStatusChange("shortlisted");
-                        }}
+                        onClick={() => handleStatusChange("shortlisted")}
                       >
                         ✓ Shortlist Candidate
                       </button>
                       <button
+                        type="button"
                         className="btn btn-ghost btn-sm"
-                        onClick={() => {
-                          handleStatusChange("interview");
-                        }}
+                        onClick={() => handleStatusChange("interview")}
                       >
                         📅 Schedule Interview
                       </button>
                       <button
+                        type="button"
                         className="btn btn-danger"
-                        onClick={() => {
-                          handleStatusChange("rejected");
-                        }}
+                        onClick={() => handleStatusChange("rejected")}
                       >
                         ✗ Reject
                       </button>
@@ -746,9 +622,7 @@ export default function CandidateDetail() {
                         >
                           Skills
                         </div>
-                        <div
-                          style={{ display: "flex", flexWrap: "wrap", gap: 6 }}
-                        >
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                           {candidate.skills.map((s) => (
                             <span
                               key={s}
@@ -791,72 +665,73 @@ export default function CandidateDetail() {
 
               {activeTab === "emails" && (
                 <div>
-                  <Section
-                    title={`Email History (${candidate.emails.length} sent)`}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 10,
-                      }}
-                    >
-                      {candidate.emails.map((email, i) => (
-                        <div
-                          key={i}
-                          className="card"
-                          style={{
-                            padding: "16px 20px",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 16,
-                          }}
-                        >
+                  <Section title={`Email History (${emails.length} sent)`}>
+                    {emails.length === 0 ? (
+                      <p style={{ color: "var(--m2)", fontSize: 14 }}>
+                        No automated email log for this applicant in the API
+                        response yet.
+                      </p>
+                    ) : (
+                      <div
+                        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                      >
+                        {emails.map((email, i) => (
                           <div
+                            key={i}
+                            className="card"
                             style={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: 10,
-                              background: `var(--${emailTypeColors[email.type]}-dim)`,
+                              padding: "16px 20px",
                               display: "flex",
                               alignItems: "center",
-                              justifyContent: "center",
-                              flexShrink: 0,
-                              fontSize: 16,
+                              gap: 16,
                             }}
                           >
-                            {email.type === "confirmation"
-                              ? "📨"
-                              : email.type === "shortlist"
-                                ? "⭐"
-                                : email.type === "interview"
-                                  ? "📅"
-                                  : "✉️"}
-                          </div>
-                          <div style={{ flex: 1 }}>
                             <div
                               style={{
-                                fontSize: 14,
-                                fontWeight: 500,
-                                color: "var(--text)",
-                                marginBottom: 3,
+                                width: 36,
+                                height: 36,
+                                borderRadius: 10,
+                                background: `var(--${emailTypeColors[email.type]}-dim)`,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                                fontSize: 16,
                               }}
                             >
-                              {email.subject}
+                              {email.type === "confirmation"
+                                ? "📨"
+                                : email.type === "shortlist"
+                                  ? "⭐"
+                                  : email.type === "interview"
+                                    ? "📅"
+                                    : "✉️"}
                             </div>
-                            <div style={{ fontSize: 12.5, color: "var(--m2)" }}>
-                              Sent automatically by n8n · {email.sent}
+                            <div style={{ flex: 1 }}>
+                              <div
+                                style={{
+                                  fontSize: 14,
+                                  fontWeight: 500,
+                                  color: "var(--text)",
+                                  marginBottom: 3,
+                                }}
+                              >
+                                {email.subject}
+                              </div>
+                              <div style={{ fontSize: 12.5, color: "var(--m2)" }}>
+                                Sent automatically by n8n · {email.sent}
+                              </div>
                             </div>
+                            <span
+                              className={`pill pill-${emailTypeColors[email.type]}`}
+                              style={{ fontSize: 11 }}
+                            >
+                              Auto-sent
+                            </span>
                           </div>
-                          <span
-                            className={`pill pill-${emailTypeColors[email.type]}`}
-                            style={{ fontSize: 11 }}
-                          >
-                            Auto-sent
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </Section>
                 </div>
               )}
@@ -872,6 +747,7 @@ export default function CandidateDetail() {
                       style={{ minHeight: 200, marginBottom: 14 }}
                     />
                     <button
+                      type="button"
                       className="btn btn-primary btn-sm"
                       onClick={handleSave}
                     >

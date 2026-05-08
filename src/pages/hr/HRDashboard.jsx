@@ -1,8 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import HRSidebar from "../../components/HRSidebar";
-import { KPICard, Avatar, StatusPill, ScoreBadge } from "../../components/UI";
+import { KPICard, Avatar, StatusPill, ScoreBadge, EmptyState } from "../../components/UI";
 import { STATUS_LABELS } from "../../data/mock";
+import {
+  fetchHRJobsAndRankedApplicants,
+  buildWeeklySeries,
+} from "../../services/hrApplicants";
 import {
   BarChart,
   Bar,
@@ -40,12 +44,54 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
+const DEPT_DOT = {
+  Engineering: "#5B8EF8",
+  "AI Research": "#8B70F5",
+  Design: "#F0A030",
+  General: "#5B8EF8",
+  HR: "#22C55E",
+};
+
 export default function HRDashboard() {
   const [filter, setFilter] = useState("all");
+  const [jobs, setJobs] = useState([]);
+  const [applicants, setApplicants] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [candidates, setCandidates] = useState([]);
-  const [jobPosts, setJobPosts] = useState([]);
+  const [loadError, setLoadError] = useState(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const { jobs: j, applicants: a } =
+          await fetchHRJobsAndRankedApplicants(24);
+        if (!cancelled) {
+          setJobs(j);
+          setApplicants(a);
+        }
+      } catch (e) {
+        if (!cancelled) setLoadError(e.message || "Could not load dashboard");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const totalFromJobs = useMemo(
+    () => jobs.reduce((sum, j) => sum + (j.applicants || 0), 0),
+    [jobs],
+  );
+
+  const displayCount = applicants.length || totalFromJobs;
+  const filtered =
+    filter === "all"
+      ? applicants
+      : applicants.filter((c) => c.status === filter);
   const statuses = [
     "all",
     "new",
@@ -56,172 +102,73 @@ export default function HRDashboard() {
     "rejected",
   ];
 
-  const normalizeStatus = (status) => {
-    const raw = typeof status === "string" ? status.trim().toLowerCase() : "";
-    if (raw === "pending") return "new";
-    const allowed = new Set(statuses.filter((s) => s !== "all"));
-    return allowed.has(raw) ? raw : "new";
-  };
-
-  const buildInitials = (name) => {
-    if (!name) return "NA";
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    const letters = parts.slice(0, 2).map((part) => part[0].toUpperCase());
-    return letters.join("") || "NA";
-  };
-
-  const normalizeCandidateFromApplication = (app, index) => {
-    const name =
-      app?.candidate?.name || app?.candidate_name || app?.name || "Candidate";
-    const email =
-      app?.candidate?.email || app?.candidate_email || app?.email || "";
-    const role = app?.job?.title || app?.appliedRole || "";
-    const location =
-      app?.job?.work_mode || app?.job?.location || app?.location || "";
-    const scoreValue = Number(
-      app?.score?.value ?? app?.score ?? app?.resume_rate ?? 0,
-    );
-
-    return {
-      id: app?._id || app?.id || `application-${index}`,
-      postId:
-        app?.post_id ||
-        app?.postId ||
-        app?.job_post_id ||
-        app?.job?.post_id ||
-        app?.job?.id ||
-        app?.job_id ||
-        "",
-      name,
-      email,
-      location,
-      appliedRole: role,
-      appliedDate: app?.appliedDate || app?.createdAt || "",
-      status: normalizeStatus(app?.status || app?.statue),
-      score: Number.isFinite(scoreValue) ? scoreValue : 0,
-      experience: app?.experience || "",
-      emails: Array.isArray(app?.emails) ? app.emails : [],
-      avatar: buildInitials(name),
-      avatarColor: "blue",
-    };
-  };
-
-  const buildWeeklyData = (items) => {
-    const now = new Date();
-    const buckets = Array.from({ length: 8 }, (_, index) => ({
-      week: `W${index + 1}`,
-      applications: 0,
-      shortlisted: 0,
-    }));
-
-    items.forEach((item) => {
-      const appliedDate = item.appliedDate ? new Date(item.appliedDate) : null;
-      if (!appliedDate || Number.isNaN(appliedDate.getTime())) return;
-
-      const diffWeeks = Math.floor(
-        (now - appliedDate) / (7 * 24 * 60 * 60 * 1000),
-      );
-      if (diffWeeks < 0 || diffWeeks > 7) return;
-
-      const bucketIndex = 7 - diffWeeks;
-      buckets[bucketIndex].applications += 1;
-      if (["shortlisted", "interview", "hired"].includes(item.status)) {
-        buckets[bucketIndex].shortlisted += 1;
-      }
-    });
-
-    return buckets;
-  };
-
-  useEffect(() => {
-    let isActive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const { getHRJobs, getHrApplications, normalizeJob } =
-          await import("../../services/api");
-        const [rawJobs, apps] = await Promise.all([
-          getHRJobs(),
-          getHrApplications(),
-        ]);
-        const posts = Array.isArray(rawJobs)
-          ? rawJobs.map(normalizeJob)
-          : (rawJobs.posts || []).map(normalizeJob);
-        const normalizedApps = Array.isArray(apps)
-          ? apps.map((app, index) =>
-              normalizeCandidateFromApplication(app, index),
-            )
-          : [];
-
-        if (isActive) {
-          setJobPosts(posts);
-          setCandidates(normalizedApps);
-        }
-      } catch {
-        if (isActive) {
-          setJobPosts([]);
-          setCandidates([]);
-        }
-      } finally {
-        if (isActive) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
-  const filtered =
-    filter === "all"
-      ? candidates
-      : candidates.filter((c) => c.status === filter);
-
-  const avgScore = candidates.length
-    ? Math.round(
-        (candidates.reduce((a, c) => a + c.score, 0) / candidates.length) * 10,
-      ) / 10
-    : 0;
-  const totalEmails = candidates.reduce(
-    (a, c) => a + (c.emails?.length || 0),
-    0,
-  );
+  const shortlistedN = applicants.filter((c) => c.status === "shortlisted")
+    .length;
+  const scored = applicants.filter((c) => c.score > 0);
+  const avgScore =
+    scored.length > 0
+      ? Math.round(
+          (scored.reduce((a, c) => a + c.score, 0) / scored.length) * 10,
+        ) / 10
+      : "—";
 
   const kpis = [
     {
-      label: "Total Applicants",
-      value: candidates.length,
-      delta: "Live",
+      label: "Total applicants",
+      value: loading ? "…" : displayCount,
+      delta: applicants.length
+        ? `${applicants.length} ranked in pipeline`
+        : `${totalFromJobs} from job posts`,
       deltaUp: true,
-      color: "#5B8EF8",
+      accentColor: "#5B8EF8",
     },
     {
       label: "Shortlisted",
-      value: candidates.filter((c) => c.status === "shortlisted").length,
-      delta: "Live",
+      value: loading ? "…" : shortlistedN,
+      delta: "From live application status",
       deltaUp: true,
-      color: "#1ECFAA",
+      accentColor: "#1ECFAA",
     },
     {
-      label: "Avg AI Score",
-      value: avgScore,
-      delta: "Live",
+      label: "Avg AI score",
+      value: loading ? "…" : avgScore,
+      delta: scored.length ? `${scored.length} scored` : "Run ranking",
       deltaUp: true,
-      color: "#F0A030",
+      accentColor: "#F0A030",
     },
     {
-      label: "Emails Sent",
-      value: totalEmails,
-      delta: "Live",
+      label: "Active roles",
+      value: loading ? "…" : jobs.filter((j) => j.status === "active").length,
+      delta: `${jobs.length} total posts`,
       deltaUp: true,
-      color: "#8B70F5",
+      accentColor: "#8B70F5",
     },
   ];
 
-  const weeklyData = buildWeeklyData(candidates);
-  const activeJobsCount = jobPosts.filter((j) => j.status === "active").length;
+  const weeklyData = useMemo(() => {
+    const fromDates = buildWeeklySeries(applicants);
+    if (fromDates) return fromDates;
+    const pipe = applicants.filter((c) =>
+      ["shortlisted", "interview", "hired"].includes(c.status),
+    ).length;
+    return [{ week: "Totals", applications: displayCount, shortlisted: pipe }];
+  }, [applicants, displayCount]);
+
+  const jobsWithAvg = useMemo(() => {
+    return jobs.map((job) => {
+      const pid = job._id || job.id;
+      const jobC = applicants.filter((c) => c.postId === String(pid));
+      const avg = jobC.length
+        ? Math.round(jobC.reduce((a, c) => a + c.score, 0) / jobC.length)
+        : 0;
+      return { job, avgScore: avg, candCount: jobC.length };
+    });
+  }, [jobs, applicants]);
+
+  const periodLabel = new Date().toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
 
   return (
     <div
@@ -242,7 +189,6 @@ export default function HRDashboard() {
           flexDirection: "column",
         }}
       >
-        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -265,16 +211,24 @@ export default function HRDashboard() {
                 fontWeight: 700,
               }}
             >
-              Recruitment Overview
+              Recruitment overview
             </h1>
             <div style={{ fontSize: 12.5, color: "var(--m2)", marginTop: 2 }}>
-              April 2026 · {loading ? "…" : activeJobsCount} active roles
+              {periodLabel} ·{" "}
+              {jobs.filter((j) => j.status === "active").length} active roles
+              {loadError && (
+                <span style={{ color: "var(--red)", marginLeft: 8 }}>
+                  ({loadError})
+                </span>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button className="btn btn-ghost btn-sm">Export PDF</button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled>
+              Export PDF
+            </button>
             <Link to="/hr/jobs" className="btn btn-primary btn-sm">
-              + Post New Job
+              + Post new job
             </Link>
           </div>
         </div>
@@ -287,7 +241,6 @@ export default function HRDashboard() {
             gap: 24,
           }}
         >
-          {/* KPIs */}
           <div
             style={{
               display: "grid",
@@ -296,20 +249,13 @@ export default function HRDashboard() {
             }}
           >
             {kpis.map((k, i) => (
-              <KPICard
-                key={i}
-                {...k}
-                value={loading ? "…" : k.value}
-                delta={loading ? "Loading" : k.delta}
-              />
+              <KPICard key={i} {...k} />
             ))}
           </div>
 
-          {/* Charts row */}
           <div
             style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}
           >
-            {/* Bar Chart */}
             <div className="card" style={{ padding: "20px 20px 14px" }}>
               <div
                 style={{
@@ -326,54 +272,61 @@ export default function HRDashboard() {
                     fontWeight: 700,
                   }}
                 >
-                  Applications over time
+                  Applications overview
                 </div>
                 <span className="pill pill-blue" style={{ fontSize: 10.5 }}>
-                  8 weeks
+                  Live data
                 </span>
               </div>
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={weeklyData} barGap={4} barCategoryGap="30%">
-                  <CartesianGrid
-                    vertical={false}
-                    stroke="rgba(255,255,255,0.04)"
-                  />
-                  <XAxis
-                    dataKey="week"
-                    tick={{ fill: "#545D80", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: "#545D80", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    content={<CustomTooltip />}
-                    cursor={{ fill: "rgba(255,255,255,0.03)" }}
-                  />
-                  <Bar
-                    dataKey="applications"
-                    fill="url(#blueGrad)"
-                    radius={[3, 3, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="shortlisted"
-                    fill="rgba(30,207,170,0.6)"
-                    radius={[3, 3, 0, 0]}
-                  />
-                  <defs>
-                    <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#5B8EF8" />
-                      <stop offset="100%" stopColor="#8B70F5" />
-                    </linearGradient>
-                  </defs>
-                </BarChart>
-              </ResponsiveContainer>
+              {applicants.length === 0 && !loading ? (
+                <EmptyState
+                  icon="📊"
+                  title="No ranked applicants yet"
+                  desc="When candidates apply and ranking returns data, charts fill in here."
+                />
+              ) : (
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={weeklyData} barGap={4} barCategoryGap="30%">
+                    <CartesianGrid
+                      vertical={false}
+                      stroke="rgba(255,255,255,0.04)"
+                    />
+                    <XAxis
+                      dataKey="week"
+                      tick={{ fill: "#545D80", fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: "#545D80", fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      content={<CustomTooltip />}
+                      cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                    />
+                    <Bar
+                      dataKey="applications"
+                      fill="url(#blueGrad)"
+                      radius={[3, 3, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="shortlisted"
+                      fill="rgba(30,207,170,0.6)"
+                      radius={[3, 3, 0, 0]}
+                    />
+                    <defs>
+                      <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#5B8EF8" />
+                        <stop offset="100%" stopColor="#8B70F5" />
+                      </linearGradient>
+                    </defs>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
 
-            {/* Job Posts Summary */}
             <div className="card" style={{ padding: "20px" }}>
               <div
                 style={{
@@ -383,41 +336,24 @@ export default function HRDashboard() {
                   marginBottom: 16,
                 }}
               >
-                Active Job Posts
+                Job posts
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {loading && (
-                  <div style={{ fontSize: 12.5, color: "var(--m2)" }}>
-                    Loading job posts...
-                  </div>
-                )}
-                {!loading && jobPosts.length === 0 && (
-                  <div style={{ fontSize: 12.5, color: "var(--m2)" }}>
-                    No active jobs yet.
-                  </div>
-                )}
-                {!loading &&
-                  jobPosts.map((job) => {
-                    const jobId = job._id || job.id;
-                    const jobCands = candidates.filter(
-                      (c) => String(c.postId || "") === String(jobId || ""),
-                    );
-                    const avgScore = jobCands.length
-                      ? Math.round(
-                          jobCands.reduce((a, c) => a + c.score, 0) /
-                            jobCands.length,
-                        )
-                      : 0;
-                    const colorMap = {
-                      Engineering: "#5B8EF8",
-                      "AI Research": "#8B70F5",
-                      Design: "#F0A030",
-                      HR: "#22C55E",
-                    };
-                    const color = colorMap[job.department] || "#5B8EF8";
+              {jobs.length === 0 && !loading ? (
+                <EmptyState
+                  icon="◻"
+                  title="No job posts"
+                  desc="Create a post under Job Posts."
+                />
+              ) : (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                >
+                  {jobsWithAvg.map(({ job, avgScore, candCount }) => {
+                    const color =
+                      DEPT_DOT[job.department] || DEPT_DOT.General;
                     return (
                       <div
-                        key={job.id}
+                        key={job._id || job.id}
                         style={{
                           display: "flex",
                           alignItems: "center",
@@ -454,7 +390,10 @@ export default function HRDashboard() {
                             {job.title}
                           </div>
                           <div style={{ fontSize: 11.5, color: "var(--m2)" }}>
-                            {job.applicants} applicants
+                            {job.applicants ?? 0} applicants
+                            {candCount > 0
+                              ? ` · ${candCount} ranked`
+                              : ""}
                           </div>
                         </div>
                         <div style={{ textAlign: "right" }}>
@@ -473,20 +412,21 @@ export default function HRDashboard() {
                           >
                             {avgScore || "—"}
                           </div>
-                          <div style={{ fontSize: 10, color: "var(--m3)" }}>
+                          <div
+                            style={{ fontSize: 10, color: "var(--m3)" }}
+                          >
                             avg score
                           </div>
                         </div>
                       </div>
                     );
                   })}
-              </div>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Candidates Table */}
           <div className="card" style={{ overflow: "hidden" }}>
-            {/* Table header */}
             <div
               style={{
                 display: "flex",
@@ -503,7 +443,7 @@ export default function HRDashboard() {
                   fontWeight: 700,
                 }}
               >
-                All Candidates
+                Candidates
               </div>
               <Link
                 to="/hr/candidates"
@@ -517,7 +457,6 @@ export default function HRDashboard() {
               </Link>
             </div>
 
-            {/* Status tabs */}
             <div
               style={{
                 display: "flex",
@@ -530,6 +469,7 @@ export default function HRDashboard() {
               {statuses.map((s) => (
                 <button
                   key={s}
+                  type="button"
                   onClick={() => setFilter(s)}
                   style={{
                     padding: "5px 14px",
@@ -549,18 +489,17 @@ export default function HRDashboard() {
                   }}
                 >
                   {s === "all" ? "All" : STATUS_LABELS[s]}
-                  <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.7 }}>
-                    {loading
-                      ? "…"
-                      : s === "all"
-                        ? candidates.length
-                        : candidates.filter((c) => c.status === s).length}
+                  <span
+                    style={{ marginLeft: 6, fontSize: 11, opacity: 0.7 }}
+                  >
+                    {s === "all"
+                      ? applicants.length
+                      : applicants.filter((c) => c.status === s).length}
                   </span>
                 </button>
               ))}
             </div>
 
-            {/* Table */}
             <div>
               <div
                 style={{
@@ -570,7 +509,7 @@ export default function HRDashboard() {
                   borderBottom: "1px solid var(--b1)",
                 }}
               >
-                {["Candidate", "Role", "AI Score", "Status", "Actions"].map(
+                {["Candidate", "Role", "AI score", "Status", "Actions"].map(
                   (h) => (
                     <div
                       key={h}
@@ -588,16 +527,18 @@ export default function HRDashboard() {
                   ),
                 )}
               </div>
-              {loading && (
-                <div style={{ padding: "16px 20px", color: "var(--m2)" }}>
-                  Loading candidates...
-                </div>
-              )}
-              {!loading &&
+              {filtered.length === 0 && !loading ? (
+                <EmptyState
+                  icon="👤"
+                  title="No candidates in this view"
+                  desc="Applicants appear after ranking returns data from your API."
+                />
+              ) : (
                 filtered.map((c) => (
                   <Link
                     key={c.id}
-                    to={`/hr/candidates/${c.id}`}
+                    to={`/hr/candidates/${encodeURIComponent(c.id)}`}
+                    state={{ applicant: c }}
                     style={{
                       textDecoration: "none",
                       display: "grid",
@@ -633,26 +574,35 @@ export default function HRDashboard() {
                         >
                           {c.name}
                         </div>
-                        <div style={{ fontSize: 12, color: "var(--m2)" }}>
+                        <div
+                          style={{ fontSize: 12, color: "var(--m2)" }}
+                        >
                           {c.location}
                         </div>
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 13, color: "var(--m1)" }}>
+                      <div
+                        style={{ fontSize: 13, color: "var(--m1)" }}
+                      >
                         {c.appliedRole}
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--m3)" }}>
-                        {c.experience} exp
+                      <div
+                        style={{ fontSize: 11, color: "var(--m3)" }}
+                      >
+                        {c.experience}
                       </div>
                     </div>
                     <ScoreBadge score={c.score} showBar />
                     <StatusPill status={c.status} />
-                    <span style={{ fontSize: 12.5, color: "var(--blue)" }}>
+                    <span
+                      style={{ fontSize: 12.5, color: "var(--blue)" }}
+                    >
                       View →
                     </span>
                   </Link>
-                ))}
+                ))
+              )}
             </div>
           </div>
         </div>
