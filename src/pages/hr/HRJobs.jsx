@@ -43,8 +43,9 @@ export default function HRJobs() {
         } else {
           setJobs([]);
         }
-      } catch {}
-      finally {
+      } catch {
+        setJobs([]);
+      } finally {
         setLoading(false);
       }
     })();
@@ -64,7 +65,7 @@ export default function HRJobs() {
     try {
       const { addJobPost, getHRJobs, normalizeJob } =
         await import("../../services/api");
-      // Parse salary range e.g. "$3,000 – $5,000/mo"
+      // Parse salary range e.g. "$3,000 - $5,000/mo"
       const nums = (form.salary || "").match(/[\d,]+/g) || [];
       const salary_min = nums[0] ? parseInt(nums[0].replace(/,/g, ""), 10) : 0;
       const salary_max = nums[1]
@@ -225,7 +226,7 @@ export default function HRJobs() {
             </h1>
             <div style={{ fontSize: 12.5, color: "var(--m2)", marginTop: 2 }}>
               {loading
-                ? "Loading jobs…"
+                ? "Loading jobs..."
                 : `${jobs.filter((j) => j.status === "active").length} active · ${jobs.length} total`}
             </div>
           </div>
@@ -235,24 +236,22 @@ export default function HRJobs() {
           >
             + Post New Job
           </button>
-            [
+        </div>
 
         <div style={{ padding: "24px 32px 40px" }}>
-                value: jobs.filter((j) => j.status === "active").length,
+          {/* Summary Cards */}
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(3, 1fr)",
-                value: jobs.reduce((a, j) => a + j.applicants, 0),
+              gap: 14,
               marginBottom: 28,
             }}
           >
             {[
-                value: jobs.length
-                  ? Math.round(
-                      jobs.reduce((a, j) => a + j.applicants, 0) / jobs.length,
-                    )
-                  : 0,
+              {
+                label: "Active Roles",
+                value: jobs.filter((j) => j.status === "active").length,
                 color: "#5B8EF8",
               },
               {
@@ -262,9 +261,11 @@ export default function HRJobs() {
               },
               {
                 label: "Avg. Per Role",
-                value: Math.round(
-                  jobs.reduce((a, j) => a + j.applicants, 0) / jobs.length,
-                ),
+                value: jobs.length
+                  ? Math.round(
+                      jobs.reduce((a, j) => a + j.applicants, 0) / jobs.length,
+                    )
+                  : 0,
                 color: "#8B70F5",
               },
             ].map((s, i) => (
@@ -308,7 +309,7 @@ export default function HRJobs() {
                     color: "var(--text)",
                   }}
                 >
-                  {loading ? "…" : s.value}
+                  {loading ? "..." : s.value}
                 </div>
               </div>
             ))}
