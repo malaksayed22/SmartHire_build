@@ -227,6 +227,27 @@ export async function rankCandidatesByPost(postId) {
   return res.json();
 }
 
+export async function getHrApplications(postId) {
+  const query = postId ? `?post_id=${encodeURIComponent(postId)}` : "";
+  const res = await apiFetch(`${BASE_URL}/hr/applications${query}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  const data = await res.json();
+  return Array.isArray(data)
+    ? data
+    : data.applications || data.data || data.results || data.items || [];
+}
+
+export async function getHrApplicationById(id) {
+  const res = await apiFetch(`${BASE_URL}/hr/applications/${id}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  const data = await res.json();
+  return data.application || data.data || data.result || data;
+}
+
 // ── Applications ──────────────────────────────────────────────────────────────
 
 export async function submitApplication(postId, file) {

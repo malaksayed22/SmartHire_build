@@ -10,10 +10,129 @@ export default function HRCandidates() {
   const [sortBy, setSortBy] = useState("score");
   const [aiRanked, setAiRanked] = useState(null);
   const [ranking, setRanking] = useState(false);
+  const [candidates, setCandidates] = useState([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(true);
   const [jobPosts, setJobPosts] = useState([]);
   const [selectedPostId, setSelectedPostId] = useState("");
   const [rankResults, setRankResults] = useState(null);
   const [toast, setToast] = useState(null);
+
+  const normalizeStatus = (status) => {
+    const raw = typeof status === "string" ? status.trim().toLowerCase() : "";
+    if (raw === "pending") return "new";
+    const allowed = new Set([
+      "new",
+      "reviewing",
+      "shortlisted",
+      "interview",
+      "hired",
+      "rejected",
+    ]);
+    return allowed.has(raw) ? raw : "new";
+  };
+
+  const buildInitials = (name) => {
+    if (!name) return "NA";
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    const letters = parts.slice(0, 2).map((part) => part[0].toUpperCase());
+    return letters.join("") || "NA";
+  };
+
+  const normalizeCandidateFromApplication = (app, index) => {
+    const name =
+      app?.candidate?.name || app?.candidate_name || app?.name || "Candidate";
+    const email =
+      app?.candidate?.email || app?.candidate_email || app?.email || "";
+    const phone = app?.candidate?.phone || app?.phone || "";
+    const role = app?.job?.title || app?.appliedRole || "";
+    const location =
+      app?.job?.work_mode || app?.job?.location || app?.location || "";
+    const scoreValue = Number(
+      app?.score?.value ?? app?.score ?? app?.resume_rate ?? 0,
+    );
+
+    return {
+      id: app?._id || app?.id || `application-${index}`,
+      candidateId: app?.candidate?.id || app?.candidate_id || "",
+      name,
+      email,
+      phone,
+      location,
+      appliedRole: role,
+      appliedDate: app?.appliedDate || app?.createdAt || "",
+      status: normalizeStatus(app?.status || app?.statue),
+      score: Number.isFinite(scoreValue) ? scoreValue : 0,
+      summary: app?.score?.summary || app?.summary || "",
+      strengths: Array.isArray(app?.score?.strengths)
+        ? app.score.strengths
+        : Array.isArray(app?.strengths)
+          ? app.strengths
+          : [],
+      weaknesses: Array.isArray(app?.score?.weaknesses)
+        ? app.score.weaknesses
+        : Array.isArray(app?.weaknesses)
+          ? app.weaknesses
+          : [],
+      experience: app?.experience || "",
+      skills: Array.isArray(app?.skills) ? app.skills : [],
+      scoreBreakdown: app?.scoreBreakdown || {
+        skills: 0,
+        experience: 0,
+        education: 0,
+      },
+      avatar: buildInitials(name),
+      avatarColor: app?.avatarColor || "blue",
+      emails: Array.isArray(app?.emails) ? app.emails : [],
+      notes: app?.notes || "",
+    };
+  };
+
+  const normalizeCandidateFromRanking = (ranked, index, candidateMap) => {
+    const rankedId =
+      ranked?.candidate_id ||
+      ranked?.candidate?.candidate_id ||
+      ranked?.candidate?.id ||
+      ranked?.candidateId ||
+      "";
+    const rankedEmail =
+      ranked?.email || ranked?.candidate?.email || ranked?.candidate_email || "";
+
+    const byId = rankedId ? candidateMap.get(rankedId) : null;
+    const byEmail = rankedEmail
+      ? candidateMap.get(rankedEmail.toLowerCase())
+      : null;
+    const base = byId || byEmail;
+
+    if (base) {
+      return { ...base, rank: index + 1 };
+    }
+
+    return {
+      id: rankedId || ranked?._id || `rank-${index}`,
+      candidateId: rankedId || "",
+      name: ranked?.name || ranked?.candidate_name || ranked?.candidate?.name,
+      email: rankedEmail,
+      phone: "",
+      location: "",
+      appliedRole: "",
+      appliedDate: "",
+      status: "new",
+      score: Number(ranked?.score || ranked?.match_score || ranked?.resume_rate || 0),
+      summary: "",
+      strengths: [],
+      weaknesses: [],
+      experience: "",
+      skills: [],
+      scoreBreakdown: { skills: 0, experience: 0, education: 0 },
+      avatar: buildInitials(
+        ranked?.name || ranked?.candidate_name || ranked?.candidate?.name,
+      ),
+      avatarColor: "blue",
+      emails: [],
+      notes: "",
+      rank: index + 1,
+    };
+  };
 
   useEffect(() => {
     (async () => {
@@ -38,6 +157,37 @@ export default function HRCandidates() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    (async () => {
+      setLoadingCandidates(true);
+      try {
+        const { getHrApplications } = await import("../../services/api");
+        const apps = await getHrApplications(selectedPostId || undefined);
+        const normalized = Array.isArray(apps)
+          ? apps.map((app, index) =>
+              normalizeCandidateFromApplication(app, index),
+            )
+          : [];
+        if (isActive) {
+          setCandidates(normalized);
+        }
+      } catch {
+        if (isActive) {
+          setCandidates(CANDIDATES);
+        }
+      } finally {
+        if (isActive) {
+          setLoadingCandidates(false);
+        }
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [selectedPostId]);
 
   const statuses = [
     "all",
@@ -65,8 +215,23 @@ export default function HRCandidates() {
       const results = Array.isArray(data)
         ? data
         : data.ranked || data.candidates || [];
+      const candidateMap = new Map(
+        (candidates.length ? candidates : CANDIDATES).flatMap((candidate) => {
+          const entries = [];
+          if (candidate.candidateId) {
+            entries.push([candidate.candidateId, candidate]);
+          }
+          if (candidate.email) {
+            entries.push([candidate.email.toLowerCase(), candidate]);
+          }
+          return entries;
+        }),
+      );
+      const rankedCandidates = results.map((ranked, index) =>
+        normalizeCandidateFromRanking(ranked, index, candidateMap),
+      );
       setRankResults(results);
-      setAiRanked(null);
+      setAiRanked(rankedCandidates);
     } catch (err) {
       console.error("Ranking failed:", err);
       setToast({
@@ -80,9 +245,8 @@ export default function HRCandidates() {
     }
   };
 
-  const baseList = aiRanked
-    ? aiRanked.map((r) => CANDIDATES.find((c) => c.id === r.id)).filter(Boolean)
-    : CANDIDATES;
+  const baseList = aiRanked || candidates;
+  const totalCount = loadingCandidates ? "…" : baseList.length;
 
   // Find the title of the currently selected job (for candidate filtering)
   const selectedJobTitle = selectedPostId
@@ -156,7 +320,7 @@ export default function HRCandidates() {
               Candidates
             </h1>
             <div style={{ fontSize: 12.5, color: "var(--m2)", marginTop: 2 }}>
-              {CANDIDATES.length} total · AI-ranked by score
+              {totalCount} total · AI-ranked by score
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -265,7 +429,9 @@ export default function HRCandidates() {
                     {c.name || c.candidate_name || c.candidate?.name || "Candidate"}
                   </span>
                   {(c.score || c.match_score || c.resume_rate) > 0 && (
-                    <ScoreBadge score={c.score || c.match_score || c.resume_rate} />
+                    <ScoreBadge
+                      score={c.score || c.match_score || c.resume_rate}
+                    />
                   )}
                   <span style={{ color: "var(--m2)", fontSize: 12 }}>
                     {c.email || c.candidate?.email || ""}
@@ -351,7 +517,7 @@ export default function HRCandidates() {
                   marginBottom: -1,
                 }}
               >
-                {s === "all" ? "All Candidates" : STATUS_LABELS[s]}
+                  {s === "all" ? "All Candidates" : STATUS_LABELS[s]}
                 <span
                   style={{ marginLeft: 7, fontSize: 11, color: "var(--m3)" }}
                 >
@@ -415,9 +581,10 @@ export default function HRCandidates() {
           </div>
 
           {filtered.map((c) => {
-            const daysAgo = Math.floor(
-              (Date.now() - new Date(c.appliedDate)) / 86400000,
-            );
+            const appliedDate = c.appliedDate ? new Date(c.appliedDate) : null;
+            const daysAgo = appliedDate && !Number.isNaN(appliedDate.getTime())
+              ? Math.floor((Date.now() - appliedDate.getTime()) / 86400000)
+              : null;
             return (
               <div
                 key={c.id}
@@ -455,7 +622,7 @@ export default function HRCandidates() {
                         marginRight: 6,
                       }}
                     >
-                      {aiRanked.find((r) => r.id === c.id)?.rank || "—"}
+                      {c.rank || "—"}
                     </span>
                   )}
                   <Avatar initials={c.avatar} color={c.avatarColor} size={38} />
@@ -507,7 +674,11 @@ export default function HRCandidates() {
                 <ScoreBadge score={c.score} showBar />
                 <StatusPill status={c.status} />
                 <div style={{ fontSize: 12.5, color: "var(--m2)" }}>
-                  {daysAgo === 0 ? "Today" : `${daysAgo}d ago`}
+                  {daysAgo === null
+                    ? "—"
+                    : daysAgo === 0
+                      ? "Today"
+                      : `${daysAgo}d ago`}
                 </div>
                 <Link
                   to={`/hr/candidates/${c.id}`}

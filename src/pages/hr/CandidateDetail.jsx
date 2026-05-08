@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import HRSidebar from '../../components/HRSidebar';
 import { Avatar, StatusPill, Toast } from '../../components/UI';
@@ -6,11 +6,121 @@ import { CANDIDATES, STATUS_LABELS, getScoreColor } from '../../data/mock';
 
 export default function CandidateDetail() {
   const { id } = useParams();
-  const candidate = CANDIDATES.find(c => c.id === id);
-  const [status, setStatus] = useState(candidate?.status || 'new');
-  const [notes, setNotes] = useState(candidate?.notes || '');
+  const [candidate, setCandidate] = useState(null);
+  const [status, setStatus] = useState('new');
+  const [notes, setNotes] = useState('');
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [loading, setLoading] = useState(true);
+
+  const normalizeStatus = (value) => {
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (raw === 'pending') return 'new';
+    const allowed = new Set([
+      'new',
+      'reviewing',
+      'shortlisted',
+      'interview',
+      'hired',
+      'rejected',
+    ]);
+    return allowed.has(raw) ? raw : 'new';
+  };
+
+  const buildInitials = (name) => {
+    if (!name) return 'NA';
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    const letters = parts.slice(0, 2).map(part => part[0].toUpperCase());
+    return letters.join('') || 'NA';
+  };
+
+  const normalizeCandidateFromApplication = (app) => {
+    if (!app) return null;
+    const name = app?.candidate?.name || app?.candidate_name || app?.name || 'Candidate';
+    const email = app?.candidate?.email || app?.candidate_email || app?.email || '';
+    const phone = app?.candidate?.phone || app?.phone || '';
+    const role = app?.job?.title || app?.appliedRole || '';
+    const location = app?.job?.work_mode || app?.job?.location || app?.location || '';
+    const scoreValue = Number(app?.score?.value ?? app?.score ?? app?.resume_rate ?? 0);
+
+    return {
+      id: app?._id || app?.id || id,
+      candidateId: app?.candidate?.id || app?.candidate_id || '',
+      name,
+      email,
+      phone,
+      linkedin: app?.linkedin || '',
+      location,
+      appliedRole: role,
+      appliedDate: app?.appliedDate || app?.createdAt || '',
+      status: normalizeStatus(app?.status || app?.statue),
+      score: Number.isFinite(scoreValue) ? scoreValue : 0,
+      summary: app?.score?.summary || app?.summary || '',
+      strengths: Array.isArray(app?.score?.strengths)
+        ? app.score.strengths
+        : Array.isArray(app?.strengths)
+          ? app.strengths
+          : [],
+      weaknesses: Array.isArray(app?.score?.weaknesses)
+        ? app.score.weaknesses
+        : Array.isArray(app?.weaknesses)
+          ? app.weaknesses
+          : [],
+      experience: app?.experience || '',
+      education: app?.education || '',
+      skills: Array.isArray(app?.skills) ? app.skills : [],
+      scoreBreakdown: app?.scoreBreakdown || { skills: 0, experience: 0, education: 0 },
+      avatar: buildInitials(name),
+      avatarColor: app?.avatarColor || 'blue',
+      emails: Array.isArray(app?.emails) ? app.emails : [],
+      notes: app?.notes || '',
+    };
+  };
+
+  useEffect(() => {
+    let isActive = true;
+
+    (async () => {
+      setLoading(true);
+      try {
+        const { getHrApplicationById } = await import('../../services/api');
+        const app = await getHrApplicationById(id);
+        const normalized = normalizeCandidateFromApplication(app);
+        if (isActive) {
+          setCandidate(normalized);
+          setStatus(normalized?.status || 'new');
+          setNotes(normalized?.notes || '');
+        }
+      } catch {
+        const fallback = CANDIDATES.find(c => c.id === id) || null;
+        if (isActive) {
+          setCandidate(fallback);
+          setStatus(fallback?.status || 'new');
+          setNotes(fallback?.notes || '');
+        }
+      } finally {
+        if (isActive) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
+        <HRSidebar />
+        <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
+          <div style={{ fontSize: 36 }}>⏳</div>
+          <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 20, fontWeight: 700 }}>Loading candidate...</div>
+        </main>
+      </div>
+    );
+  }
 
   if (!candidate) return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
@@ -25,6 +135,10 @@ export default function CandidateDetail() {
 
   const scoreColor = { teal: 'var(--teal)', amber: 'var(--amber)', red: 'var(--red)' }[getScoreColor(candidate.score)];
   const emailTypeColors = { confirmation: 'blue', shortlist: 'teal', interview: 'violet', rejection: 'red' };
+  const appliedDateValue = candidate.appliedDate ? new Date(candidate.appliedDate) : null;
+  const appliedDateText = appliedDateValue && !Number.isNaN(appliedDateValue.getTime())
+    ? appliedDateValue.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : '—';
 
   const handleSave = () => {
     setToast({ message: 'Changes saved successfully', type: 'success' });
@@ -154,7 +268,7 @@ export default function CandidateDetail() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                       <InfoCard label="Experience" value={candidate.experience} />
                       <InfoCard label="Education" value={candidate.education} />
-                      <InfoCard label="Applied Date" value={new Date(candidate.appliedDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} />
+                      <InfoCard label="Applied Date" value={appliedDateText} />
                       <InfoCard label="Applied Role" value={candidate.appliedRole} />
                     </div>
                   </Section>
