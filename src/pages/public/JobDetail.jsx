@@ -89,6 +89,12 @@ export default function JobDetail() {
   };
 
   const handleSubmit = async () => {
+    if (!candidateUser) {
+      const redirect = encodeURIComponent(`/jobs/${id}`);
+      setAiError("Please sign in to apply for this role.");
+      navigate(`/candidate/login?redirect=${redirect}`);
+      return;
+    }
     if (!form.name || !form.email || !file) return;
     setSubmitting(true);
     setAiError(null);
@@ -691,8 +697,7 @@ function JobAIChat({ job }) {
       const { chatByJob } = await import("../../services/api");
       const data = await chatByJob(job._id, text.trim());
       const answer =
-        extractChatAnswer(data) ||
-        "I couldn't generate a response right now.";
+        extractChatAnswer(data) || "I couldn't generate a response right now.";
       setMessages((prev) => [...prev, { from: "bot", text: answer }]);
     } catch {
       setMessages((prev) => [
