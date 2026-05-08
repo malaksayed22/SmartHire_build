@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import HRSidebar from "../../components/HRSidebar";
 import { DeptTag, Toast } from "../../components/UI";
-import { JOBS, CANDIDATES } from "../../data/mock";
 
 export default function HRJobs() {
   const [showModal, setShowModal] = useState(false);
@@ -29,17 +28,25 @@ export default function HRJobs() {
     requirements: "",
     skills: "",
   });
-  const [jobs, setJobs] = useState(JOBS);
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   // Fetch real jobs from backend on mount
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
         const { getHRJobs, normalizeJob } = await import("../../services/api");
         const data = await getHRJobs();
-        if (Array.isArray(data) && data.length > 0)
+        if (Array.isArray(data)) {
           setJobs(data.map(normalizeJob));
+        } else {
+          setJobs([]);
+        }
       } catch {}
+      finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
@@ -217,8 +224,9 @@ export default function HRJobs() {
               Job Posts
             </h1>
             <div style={{ fontSize: 12.5, color: "var(--m2)", marginTop: 2 }}>
-              {jobs.filter((j) => j.status === "active").length} active ·{" "}
-              {jobs.length} total
+              {loading
+                ? "Loading jobs…"
+                : `${jobs.filter((j) => j.status === "active").length} active · ${jobs.length} total`}
             </div>
           </div>
           <button
@@ -227,22 +235,24 @@ export default function HRJobs() {
           >
             + Post New Job
           </button>
-        </div>
+            [
 
         <div style={{ padding: "24px 32px 40px" }}>
-          {/* Summary Cards */}
+                value: jobs.filter((j) => j.status === "active").length,
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 14,
+                value: jobs.reduce((a, j) => a + j.applicants, 0),
               marginBottom: 28,
             }}
           >
             {[
-              {
-                label: "Active Roles",
-                value: jobs.filter((j) => j.status === "active").length,
+                value: jobs.length
+                  ? Math.round(
+                      jobs.reduce((a, j) => a + j.applicants, 0) / jobs.length,
+                    )
+                  : 0,
                 color: "#5B8EF8",
               },
               {
@@ -298,7 +308,7 @@ export default function HRJobs() {
                     color: "var(--text)",
                   }}
                 >
-                  {s.value}
+                  {loading ? "…" : s.value}
                 </div>
               </div>
             ))}
@@ -349,7 +359,18 @@ export default function HRJobs() {
                 </div>
               ))}
             </div>
-            {jobs.map((job) => {
+            {loading && (
+              <div style={{ padding: "16px 20px", color: "var(--m2)" }}>
+                Loading jobs...
+              </div>
+            )}
+            {!loading && jobs.length === 0 && (
+              <div style={{ padding: "16px 20px", color: "var(--m2)" }}>
+                No jobs yet.
+              </div>
+            )}
+            {!loading &&
+              jobs.map((job) => {
               const daysAgo = Math.floor(
                 (Date.now() - new Date(job.posted)) / 86400000,
               );
