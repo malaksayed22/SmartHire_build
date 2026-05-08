@@ -262,13 +262,13 @@ export default function HRCandidates() {
                     #{i + 1}
                   </span>
                   <span style={{ fontWeight: 500, fontSize: 13.5 }}>
-                    {c.name || c.candidate_name || "Candidate"}
+                    {c.name || c.candidate_name || c.candidate?.name || "Candidate"}
                   </span>
-                  {(c.score || c.match_score) > 0 && (
-                    <ScoreBadge score={c.score || c.match_score} />
+                  {(c.score || c.match_score || c.resume_rate) > 0 && (
+                    <ScoreBadge score={c.score || c.match_score || c.resume_rate} />
                   )}
                   <span style={{ color: "var(--m2)", fontSize: 12 }}>
-                    {c.email || ""}
+                    {c.email || c.candidate?.email || ""}
                   </span>
                 </div>
               ))}
